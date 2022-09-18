@@ -10,5 +10,7 @@ test.py
 
 *.log
 .DS_Store
+.idea
 
 src/config_test.py
+src/config.py

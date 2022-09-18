@@ -1,2 +1,4 @@
 telethon
 telepot
+cryptg
+coloredlogs~=15.0.1

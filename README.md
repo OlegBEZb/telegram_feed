@@ -1,12 +1,13 @@
 # Union Channel 
 ## What's it?
 
-This is a simple program that will combine all your channels into one, as well as filter ads in them.
+This is a simple program that will combine all your channels into one, as well as filter ads and duplicates in them. 
+Deduplication works based on media, text, and text format. Duplicated media is enough to be rejected even with a new text.
 
 ## How it works?
 
 The program through your account goes to all the channels that you have added to the `channels.json` and sends them to your personal (or not) channel.
-Subscribe to the channels in the telegrams is not required.
+Subscribe to the channels in the telegrams is not required (based on the original realisation).
 
 >In the new version, you can subscribe to a private channel. All private channels require a subscription therefore you will be automatically subscribed to this channel. It will be immediately archived
 
@@ -22,7 +23,7 @@ Subscribe to the channels in the telegrams is not required.
       ###     Telegram-client side:   ###
       api_id = XXXX
       api_hash = "XXXXXXXXXXXXXXXXXXX"
-      MyChannel = "XXXXXXXXXXXXXXXXXXXXXXXX" #link to your chat 
+      MyChannel = "XXXXXXXXXXXXXXXXXXXXXXXX" # link to your chat 
  
       ###          Bot-side:          ###
       bot_token = "XXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
@@ -44,3 +45,18 @@ Subscribe to the channels in the telegrams is not required.
     /delrule - Delete rule
     /setads - Enable/Disable AdBlock
     /rules - List of AdBlock rules
+
+
+# TODO
+1. message.fwd_from should not be from the other channels I read
+2. Calculate statistics for originality of content produced
+   1. find real origins of forwarded forwarded...
+   2. add counters to them 
+3. Deduplication of subscriptions
+4. Add liked memes from profunctor
+5. Add reactions
+   1. Add recommender system
+6. Serve as bot which everyone can configure for personal needs and personal feed
+7. Add more complex spam detector
+   1. count vectorizer to start with?
+8. Add dict with channel names from ids?
