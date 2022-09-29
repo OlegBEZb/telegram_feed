@@ -81,9 +81,9 @@ def forward_msgs(client: TelegramClient, peer, msg_list: List[Message], peer_to_
                             print(f"Message '{my_msg.message[:20]}...' was published by '{fwd_to_name1}' (forwarded from '{orig_name1}') before '{orig_name2}'")
                     else:  # channel 2 has forwarded post
                         if fwd_date1 > fwd_date2:
-                            print(f"Message '{my_msg.message[:20]}...' was reposted by '{fwd_to_name2}' (from '{orig_name2}') before '{orig_name1} (from '{fwd_to_name1})'")
+                            print(f"Message '{my_msg.message[:20]}...' was reposted by '{fwd_to_name2}' (from '{orig_name2}') before '{fwd_to_name1}' (from '{orig_name1}')")
                         else:
-                            print(f"Message '{my_msg.message[:20]}...' was reposted by '{orig_name1}' (from '{fwd_to_name1}') before '{orig_name2} (from '{fwd_to_name2})'")
+                            print(f"Message '{my_msg.message[:20]}...' was reposted by '{orig_name1}' (from '{fwd_to_name1}') before '{fwd_to_name2}' (from '{orig_name2}')")
                 messages_checked_list.remove(msg)
                 break
     logger.debug(f'after checking with the target channel history {len(messages_checked_list)}')
@@ -157,7 +157,7 @@ def send_msg(client: TelegramClient, peer: str, msg_non_grouped: List[int], peer
     # we can mark this as unread (by default, read (!unread))
     if peer_to_forward_to == config.MyChannel:
         client(MarkDialogUnreadRequest(peer=peer_to_forward_to, unread=True))
-        logger.info(f"{config.MyChannel} is marked as unread")
+        logger.debug(f"{config.MyChannel} is marked as unread")
 
 
 def send_grouped(client: TelegramClient, peer, grouped_ids, peer_to_forward_to):
@@ -282,7 +282,7 @@ def main(client: TelegramClient):
                 #       dialog.unread_count, dialog.unread_mark)
 
                 client.send_read_acknowledge(channel_id, msg_list)
-                logger.info(f"Channel {channel_id} is mark as read")
+                logger.debug(f"Channel {channel_id} is marked as read")
 
         except Exception as e:
             logger.error(str(e))
@@ -305,7 +305,7 @@ if __name__ == '__main__':
 
     logger = logging.getLogger(__name__)
     if log_level != 'DEBUG':
-        logging.getLogger('telethon').setLevel(logging.WARNING)
+        logging.getLogger('telethon').setLevel(logging.ERROR)
     logger.setLevel(log_level)
     coloredlogs.install(level=logging.INFO, logger=logger)
 
@@ -321,83 +321,6 @@ if __name__ == '__main__':
             client = TelegramClient('telefeed_client', api_id, api_hash)
             client.start()
             logger.debug('TelegramClient is started\n')
-
-            # Debugging stuff
-            # from telethon.tl.types import PeerChannel
-            # print('client.get_input_entity(PeerChannel(1051500113))', client.get_input_entity(PeerChannel(1051500113)))
-
-            # my_channel_history = client(functions.messages.GetHistoryRequest(
-            #     peer=config.MyChannel,
-            #     offset_id=0,
-            #     offset_date=0,
-            #     add_offset=0,
-            #     limit=10,
-            #     max_id=0,
-            #     min_id=0,
-            #     hash=0
-            # ))
-            # print('len(my_channel_history.messages)', len(my_channel_history.messages))
-            # print('my history ids', [msg.id for msg in my_channel_history.messages])
-            # # print('my_dick', my_dick.__dict__)
-            #
-            # other_dick = client(functions.messages.GetHistoryRequest(
-            #     peer='https://t.me/nn_for_science',
-            #     offset_id=0,
-            #     offset_date=0,
-            #     add_offset=0,
-            #     limit=1,
-            #     max_id=0,
-            #     min_id=0,
-            #     hash=0
-            # ))
-            # print('other_dick', other_dick)
-
-            # print('shared fields', {k: v for k, v in my_dick.items() if other_dick[k] == v})
-
-            # messages = client(GetHistoryRequest(
-            #     peer=config.MyChannel,
-            #     offset_id=0,
-            #     offset_date=0,
-            #     add_offset=0,
-            #     limit=1,
-            #     max_id=0,
-            #     min_id=0,
-            #     hash=0
-            # ))
-            # print('messages.messages[0].__dict__', messages.messages[0].__dict__)
-
-            # messages = client(GetHistoryRequest(
-            #     peer='https://t.me/DeepStuffChannel',
-            #     offset_id=0,
-            #     offset_date=0,
-            #     add_offset=0,
-            #     limit=1,
-            #     max_id=0,
-            #     min_id=0,
-            #     hash=0
-            # ))
-            # check_msg_list_for_adds(messages.messages)
-            # print('messages.__dict__', messages.__dict__)
-            # print('messages.messages', messages.messages)
-            # print('messages.messages type', type(messages.messages))
-            # print('messages.messages', [txt.message[:10] for txt in messages.messages])
-            # print('messages.messages[0].__dict__', messages.messages[0].__dict__)
-            # print('messages.messages[0].fwd_from', messages.messages[0].fwd_from)
-            # print('messages.messages[0].fwd_from.from_id', messages.messages[0].fwd_from.from_id)
-            # print('messages.chats[0].__dict__', messages.chats[0].__dict__)
-            # print('messages.users[0].__dict__', messages.users[0].__dict__)
-            # if messages.messages:  # nothing new from the last read
-            #     print('messages.messages[0].__dict__', messages.messages[0].__dict__)
-            #
-            # result = client(GetPeerDialogsRequest(
-            #         peers=['https://t.me/DeepFaker']
-            #     ))
-            # print('result.dialogs[0].__dict__', result.dialogs[0].__dict__)
-            # print('result.dialogs[0].peer.__dict__', result.dialogs[0].peer.__dict__)
-            # from telethon.utils import get_display_name
-            # print('get_display_name(result.dialogs[0].peer)', get_display_name(result.dialogs[0].peer))
-            # print("result.dialogs[0]['peer']", result.dialogs[0]['peer'])
-
             isNotConnected = False
         except Exception as e:
             connection_attempts += 1
@@ -413,6 +336,10 @@ if __name__ == '__main__':
                 wait = 300
             # print("Waiting for", wait)
             time.sleep(wait)
+
+        except KeyboardInterrupt:
+            client.disconnect()
+            exit()
         except Exception as e:
             print(str(e))
             logger.error(str(e))

@@ -48,15 +48,20 @@ Subscribe to the channels in the telegrams is not required (based on the origina
 
 
 # TODO
-1. message.fwd_from should not be from the other channels I read
-2. Calculate statistics for originality of content produced
+1. Calculate statistics for originality of content produced
    1. find real origins of forwarded forwarded...
    2. add counters to them 
 3. Deduplication of subscriptions
 4. Add liked memes from profunctor
-5. Add reactions
+5. Add reactions + spam report to be automatically used as a per-person feedback loop
    1. Add recommender system
 6. Serve as bot which everyone can configure for personal needs and personal feed
 7. Add more complex spam detector
    1. count vectorizer to start with?
+   2. Average URL Number per Message
+   3. Unique URL Number
+   4. domain
+   5. add feedback loop from my reactions in the chat (and then delete the posts)
 8. Add dict with channel names from ids?
+9. Update filtering rules to a list (mb dict with some level of severity)
+10. Check forwarding from channels without subscription

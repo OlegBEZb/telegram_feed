@@ -3,7 +3,7 @@ from typing import List
 
 from telethon.tl.patched import Message
 from telethon.tl.tlobject import TLObject
-from telethon.tl.types import MessageMediaDocument, MessageMediaPhoto
+from telethon.tl.types import MessageMediaDocument, MessageMediaPhoto, MessageMediaWebPage
 
 import logging
 logger = logging.getLogger(__name__)
@@ -42,22 +42,28 @@ def SaveJson(name, data):
 def media_is_duplicated(m1, m2):
     if m1 is None and m2 is None:
         return True
+
     if type(m1) is not type(m2):
         return False
-    if m1.ttl_seconds == m2.ttl_seconds:
-        if isinstance(m1, MessageMediaDocument):
-            d1 = m1.document.to_dict()
-            d2 = m2.document.to_dict()
-        elif isinstance(m1, MessageMediaPhoto):
-            d1 = m1.photo.to_dict()
-            d2 = m2.photo.to_dict()
-        d1.pop('file_reference', None)
-        d2.pop('file_reference', None)
-        # drop date as well?
-        if d1 == d2:
-            return True
-        # else:
-        #     logger.error(f'm1 type {type(m1)} or m2 type {type(m2)} is not TLObject')
+
+    if isinstance(m1, MessageMediaDocument):
+        d1 = m1.document.to_dict()
+        d2 = m2.document.to_dict()
+    elif isinstance(m1, MessageMediaPhoto):
+        d1 = m1.photo.to_dict()
+        d2 = m2.photo.to_dict()
+    elif isinstance(m1, MessageMediaWebPage):
+        d1 = m1.webpage.to_dict()
+        d2 = m2.webpage.to_dict()
+
+    # file reference is different. https://core.telegram.org/api/file_reference
+    d1.pop('file_reference', None)
+    d2.pop('file_reference', None)
+    # drop date as well?
+    if d1 == d2:
+        return True
+    # else:
+    #     logger.error(f'm1 type {type(m1)} or m2 type {type(m2)} is not TLObject')
 
     return False
 
@@ -112,14 +118,10 @@ def open_rules_file():
     :return:
     """
     ads = OpenJson(name="ads")
-    if ads["enable"] == 1:
-        ads_list = list()
-        for ad in ads:
-            if ad != "enable:":  # each term may have it's priority. Now it's 0 as a placeholder
-                ads_list.append(ad)
-        return ads_list
-    else:
-        return None
+    ads_list = list()
+    for ad in ads:
+        ads_list.append(ad)  # each term may have it's priority. Now it's 0 as a placeholder
+    return ads_list
 
 
 def check_msg_list_for_adds(msg_list: List):
