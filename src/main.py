@@ -160,6 +160,7 @@ def send_msg(client: TelegramClient, peer: str, msg_non_grouped: List[int], peer
         logger.debug(f"{config.MyChannel} is marked as unread")
 
 
+# TODO: merge both send funcs if there is no difference
 def send_grouped(client: TelegramClient, peer, grouped_ids, peer_to_forward_to):
     # print('sending group')
     client(ForwardMessagesRequest(
@@ -169,7 +170,7 @@ def send_grouped(client: TelegramClient, peer, grouped_ids, peer_to_forward_to):
         with_my_score=True,
         # grouped=True
     ))
-    logger.debug('sent group')
+    logger.info('sent group')
 
     # if we sent at least one message and the recipient is our channel,
     # we can mark this as unread (by default, read (!unread))

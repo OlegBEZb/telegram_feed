@@ -1,6 +1,8 @@
 # Union Channel 
 ## What's it?
 
+<img src="./Doc/telegram_feed.png" alt="architecture" align="center" width="700px"/>
+
 This is a simple program that will combine all your channels into one, as well as filter ads and duplicates in them. 
 Deduplication works based on media, text, and text format. Duplicated media is enough to be rejected even with a new text.
 
@@ -51,17 +53,24 @@ Subscribe to the channels in the telegrams is not required (based on the origina
 1. Calculate statistics for originality of content produced
    1. find real origins of forwarded forwarded...
    2. add counters to them 
-3. Deduplication of subscriptions
-4. Add liked memes from profunctor
-5. Add reactions + spam report to be automatically used as a per-person feedback loop
+2. Deduplication of subscriptions
+3. Add liked memes from profunctor
+4. Add reactions + spam report to be automatically used as a per-person feedback loop
    1. Add recommender system
-6. Serve as bot which everyone can configure for personal needs and personal feed
-7. Add more complex spam detector
+5. Keep this bot hosted on a server
+   1. database will contain user's preferences, subscription lists
+   2. bot which everyone can configure for personal needs and personal feed
+   3. recsys trained on all users
+6. Add more complex spam detector
    1. count vectorizer to start with?
    2. Average URL Number per Message
    3. Unique URL Number
    4. domain
    5. add feedback loop from my reactions in the chat (and then delete the posts)
-8. Add dict with channel names from ids?
-9. Update filtering rules to a list (mb dict with some level of severity)
-10. Check forwarding from channels without subscription
+7. Add dict with channel names from ids?
+8. Update filtering rules to a list (mb dict with some level of severity)
+9. Check forwarding from channels without subscription
+10. deduplicate if the post covers the same news or the same model (within some period of time). 
+Different opinions  from different channels might be interesting but very similar content 
+about the same news is definitely not
+11. 

@@ -4,7 +4,7 @@ import pandas as pd
 import config
 
 from telethon.sync import TelegramClient
-from telethon.tl.types import MessageFwdHeader, PeerChannel
+from telethon.tl.types import MessageFwdHeader, PeerChannel, MessageEntityTextUrl
 from telethon.tl.patched import Message
 from telethon.tl.functions.messages import ImportChatInviteRequest, CheckChatInviteRequest
 from telethon.tl.functions.messages import GetPeerDialogsRequest, MarkDialogUnreadRequest
@@ -60,20 +60,26 @@ if __name__ == '__main__':
         min_id=0,
         hash=0
     ))
-    target_keys = ['date', 'message', 'pinned']
+    target_keys = ['date', 'raw_text', 'message', 'pinned']
     save_list = []
     for msg in my_channel_history.messages:
         reactions_dict = get_reactions(msg)
         if reactions_dict is not None:
-            sentiment = 0
-            for r in good_reactions:
-                sentiment += reactions_dict.get(r, 0)
-            for r in bad_reactions:
-                sentiment -= reactions_dict.get(r, 0)
-            if sentiment < 0:
-                print(msg.id, reactions_dict)
-                save_list.append({k: v for k, v in msg.__dict__.items() if k in target_keys})
-    pd.DataFrame(save_list).to_csv('data/my_channel_negative_msgs.csv', index=False)
+            # sentiment = 0
+            # for r in good_reactions:
+            #     sentiment += reactions_dict.get(r, 0)
+            # for r in bad_reactions:
+            #     sentiment -= reactions_dict.get(r, 0)
+            # if sentiment < 0:
+            #     print(msg.id, reactions_dict)
+            d = {k: v for k, v in msg.__dict__.items() if k in target_keys}
+            d.update(reactions_dict)
+            if msg.entities is not None:
+                d['entities_num'] = len(msg.entities)
+                entity_urls = [ent.url for ent in msg.entities if isinstance(ent, MessageEntityTextUrl)]
+                d['entity_urls'] = entity_urls if entity_urls else None
+            save_list.append(d)
+    pd.DataFrame(save_list).to_csv('data/my_channel_msgs_reactions.csv', index=False)
 
     # print([(reaction.reaction, reaction.count) for msg in my_channel_history.messages for reaction in msg.reactions.results], 'reactions')
 
