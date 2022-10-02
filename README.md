@@ -1,7 +1,7 @@
 # Union Channel 
 ## What's it?
 
-<img src="./Doc/telegram_feed.png" alt="architecture" align="center" width="700px"/>
+<img src="./images/telegram_feed.png" alt="architecture" align="center" width="700px"/>
 
 This is a simple program that will combine all your channels into one, as well as filter ads and duplicates in them. 
 Deduplication works based on media, text, and text format. Duplicated media is enough to be rejected even with a new text.
@@ -73,4 +73,11 @@ Subscribe to the channels in the telegrams is not required (based on the origina
 10. deduplicate if the post covers the same news or the same model (within some period of time). 
 Different opinions  from different channels might be interesting but very similar content 
 about the same news is definitely not
-11. 
+    1. text similarity?
+    2. same references used (links, channels, named entities)
+    3. time of the post is more or less simiral (within 24 hour or sth)
+    4. What to do with that?
+       1. First served policy
+       2. Somehow aggregate opinions from different channels via updating the first post on this topic
+       3. Take better?
+11. Channel recommendation [Vlad](https://github.com/sawyre)'s idea). PageRank?
