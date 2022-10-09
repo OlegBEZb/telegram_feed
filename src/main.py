@@ -4,6 +4,8 @@ from random import randint
 
 import time
 import logging
+logger = logging.getLogger(__name__)
+
 import coloredlogs
 
 from typing import List
@@ -12,7 +14,7 @@ from typing import List
 # api_hash from https://my.telegram.org, under API Development.
 
 from telethon.sync import TelegramClient
-from telethon.tl.types import MessageFwdHeader, PeerChannel
+from telethon.tl.types import MessageFwdHeader, PeerChannel, TypeInputPeer
 from telethon.tl.patched import Message
 from telethon.tl.functions.messages import ImportChatInviteRequest, CheckChatInviteRequest
 from telethon.tl.functions.messages import GetPeerDialogsRequest, MarkDialogUnreadRequest
@@ -47,7 +49,7 @@ def get_source_channel_name_for_message(client: TelegramClient, msg: Message):
     return orig_name, orig_date, fwd_to_name, fwd_date
 
 
-def forward_msgs(client: TelegramClient, peer, msg_list: List[Message], peer_to_forward_to):
+def forward_msgs(client: TelegramClient, peer: TypeInputPeer, msg_list: List[Message], peer_to_forward_to: TypeInputPeer):
 
     logger.debug(f'messages before checking for advertisements: {len(msg_list)}')
     messages_checked_list = check_msg_list_for_adds(msg_list)
@@ -81,9 +83,9 @@ def forward_msgs(client: TelegramClient, peer, msg_list: List[Message], peer_to_
                             print(f"Message '{my_msg.message[:20]}...' was published by '{fwd_to_name1}' (forwarded from '{orig_name1}') before '{orig_name2}'")
                     else:  # channel 2 has forwarded post
                         if fwd_date1 > fwd_date2:
-                            print(f"Message '{my_msg.message[:20]}...' was reposted by '{fwd_to_name2}' (from '{orig_name2}') before '{fwd_to_name1}' (from '{orig_name1}')")
+                            print(f"Message '{my_msg.message[:20]}...' was reposted by '{fwd_to_name2}' at {fwd_date2} (from '{orig_name2}') before '{fwd_to_name1}' at {fwd_date1} (from '{orig_name1}')")
                         else:
-                            print(f"Message '{my_msg.message[:20]}...' was reposted by '{orig_name1}' (from '{fwd_to_name1}') before '{fwd_to_name2}' (from '{orig_name2}')")
+                            print(f"Message '{my_msg.message[:20]}...' was reposted by '{fwd_to_name1}' at {fwd_date1} (from '{orig_name1}') before '{fwd_to_name2}' at {fwd_date2} (from '{orig_name2}')")
                 messages_checked_list.remove(msg)
                 break
     logger.debug(f'after checking with the target channel history {len(messages_checked_list)}')
@@ -104,13 +106,13 @@ def forward_msgs(client: TelegramClient, peer, msg_list: List[Message], peer_to_
                     send_msg(client, peer, msg_non_grouped, peer_to_forward_to)
                     msg_non_grouped = list()
                 if grouped_msg_ids:  # in case of consequent groups
-                    send_grouped(client, peer, grouped_msg_ids, peer_to_forward_to)
+                    send_msg(client, peer, grouped_msg_ids, peer_to_forward_to)
                     grouped_msg_ids = list()
                 last_grouped_id = msg.grouped_id
                 grouped_msg_ids.append(msg.id)
         else:
             if grouped_msg_ids:
-                send_grouped(client, peer, grouped_msg_ids, peer_to_forward_to)
+                send_msg(client, peer, grouped_msg_ids, peer_to_forward_to)
                 grouped_msg_ids = list()
             msg_non_grouped.append(msg.id)
 
@@ -118,7 +120,7 @@ def forward_msgs(client: TelegramClient, peer, msg_list: List[Message], peer_to_
         send_msg(client, peer, msg_non_grouped, peer_to_forward_to)
 
     if grouped_msg_ids:
-        send_grouped(client, peer, grouped_msg_ids, peer_to_forward_to)
+        send_msg(client, peer, grouped_msg_ids, peer_to_forward_to)
 
         # client(MarkDialogUnreadRequest(peer=peer_to_forward_to, unread=True))
         # print(f"{config.MyChannel} is marked as unread")
@@ -134,20 +136,21 @@ def forward_msgs(client: TelegramClient, peer, msg_list: List[Message], peer_to_
     return msg_list[0].id
 
 
-def send_msg(client: TelegramClient, peer: str, msg_non_grouped: List[int], peer_to_forward_to: str):
+def send_msg(client: TelegramClient, peer, msg_non_grouped: List[int], peer_to_forward_to: str):
     """
 
     :param client:
     :param peer: Anything entity-like will work if the library can find its Input version
     (e.g., usernames, Peer, User or Channel objects, etc.).
     :param msg_non_grouped: A list must be supplied.
-    :param peer_to_forward_to:
+    :param peer_to_forward_to: Anything entity-like will work if the library can find its Input version
+    (e.g., usernames, Peer, User or Channel objects, etc.).
     :return:
     """
     # print('sending msg')
     client(ForwardMessagesRequest(
         from_peer=peer,  # who sent these messages?
-        id=msg_non_grouped,  # which are the messages?
+        id=msg_non_grouped,  # which are the messages? = grouped_ids
         to_peer=peer_to_forward_to,  # who are we forwarding them to?
         with_my_score=True
     ))
@@ -158,27 +161,6 @@ def send_msg(client: TelegramClient, peer: str, msg_non_grouped: List[int], peer
     if peer_to_forward_to == config.MyChannel:
         client(MarkDialogUnreadRequest(peer=peer_to_forward_to, unread=True))
         logger.debug(f"{config.MyChannel} is marked as unread")
-
-
-# TODO: merge both send funcs if there is no difference
-def send_grouped(client: TelegramClient, peer, grouped_ids, peer_to_forward_to):
-    # print('sending group')
-    client(ForwardMessagesRequest(
-        from_peer=peer,
-        id=grouped_ids,
-        to_peer=peer_to_forward_to,
-        with_my_score=True,
-        # grouped=True
-    ))
-    logger.info('sent group')
-
-    # if we sent at least one message and the recipient is our channel,
-    # we can mark this as unread (by default, read (!unread))
-    if peer_to_forward_to == config.MyChannel:
-        client(MarkDialogUnreadRequest(peer=peer_to_forward_to, unread=True))
-        logger.info(f"{config.MyChannel} is marked as unread")
-
-    return grouped_ids
 
 
 def get_history(client: TelegramClient, min_id, channel_id, limit=100):
@@ -299,12 +281,11 @@ if __name__ == '__main__':
     log_level = args.log_level.upper()
 
     logging.basicConfig(
-        # filename="MainClient.log",
+        filename="MainClient.log",
         format='%(asctime)s %(name)s %(levelname)s: %(message)s',
         level=logging.WARNING,
         datefmt='%Y-%m-%d %I:%M:%S')
 
-    logger = logging.getLogger(__name__)
     if log_level != 'DEBUG':
         logging.getLogger('telethon').setLevel(logging.ERROR)
     logger.setLevel(log_level)
