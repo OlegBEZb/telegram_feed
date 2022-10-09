@@ -14,6 +14,8 @@ from telethon.tl.functions.channels import GetFullChannelRequest
 from utils import OpenUpdateTime, SaveUpdateTime, SaveNewTime
 from utils import check_copypaste, check_msg_list_for_adds, check_channel_correctness
 
+from main import send_msg
+
 good_reactions = ['👍', '❤', '🔥', '❤\u200d🔥', '🎉']
 bad_reactions = ['👎', '👏', '😁', '💩', '🤮']
 
@@ -50,36 +52,36 @@ if __name__ == '__main__':
     # from telethon.tl.types import PeerChannel
     # print('client.get_input_entity(PeerChannel(1051500113))', client.get_input_entity(PeerChannel(1051500113)))
 
-    my_channel_history = client(GetHistoryRequest(
-        peer=config.MyChannel,
-        offset_id=0,
-        offset_date=0,
-        add_offset=0,
-        limit=100,
-        max_id=0,
-        min_id=0,
-        hash=0
-    ))
-    target_keys = ['date', 'raw_text', 'message', 'pinned']
-    save_list = []
-    for msg in my_channel_history.messages:
-        reactions_dict = get_reactions(msg)
-        if reactions_dict is not None:
-            # sentiment = 0
-            # for r in good_reactions:
-            #     sentiment += reactions_dict.get(r, 0)
-            # for r in bad_reactions:
-            #     sentiment -= reactions_dict.get(r, 0)
-            # if sentiment < 0:
-            #     print(msg.id, reactions_dict)
-            d = {k: v for k, v in msg.__dict__.items() if k in target_keys}
-            d.update(reactions_dict)
-            if msg.entities is not None:
-                d['entities_num'] = len(msg.entities)
-                entity_urls = [ent.url for ent in msg.entities if isinstance(ent, MessageEntityTextUrl)]
-                d['entity_urls'] = entity_urls if entity_urls else None
-            save_list.append(d)
-    pd.DataFrame(save_list).to_csv('data/my_channel_msgs_reactions.csv', index=False)
+    # my_channel_history = client(GetHistoryRequest(
+    #     peer=config.MyChannel,
+    #     offset_id=0,
+    #     offset_date=0,
+    #     add_offset=0,
+    #     limit=100,
+    #     max_id=0,
+    #     min_id=0,
+    #     hash=0
+    # ))
+    # target_keys = ['date', 'raw_text', 'message', 'pinned']
+    # save_list = []
+    # for msg in my_channel_history.messages:
+    #     reactions_dict = get_reactions(msg)
+    #     if reactions_dict is not None:
+    #         # sentiment = 0
+    #         # for r in good_reactions:
+    #         #     sentiment += reactions_dict.get(r, 0)
+    #         # for r in bad_reactions:
+    #         #     sentiment -= reactions_dict.get(r, 0)
+    #         # if sentiment < 0:
+    #         #     print(msg.id, reactions_dict)
+    #         d = {k: v for k, v in msg.__dict__.items() if k in target_keys}
+    #         d.update(reactions_dict)
+    #         if msg.entities is not None:
+    #             d['entities_num'] = len(msg.entities)
+    #             entity_urls = [ent.url for ent in msg.entities if isinstance(ent, MessageEntityTextUrl)]
+    #             d['entity_urls'] = entity_urls if entity_urls else None
+    #         save_list.append(d)
+    # pd.DataFrame(save_list).to_csv('data/my_channel_msgs_reactions.csv', index=False)
 
     # print([(reaction.reaction, reaction.count) for msg in my_channel_history.messages for reaction in msg.reactions.results], 'reactions')
 
@@ -87,18 +89,20 @@ if __name__ == '__main__':
     # print('my history ids', [msg.id for msg in my_channel_history.messages])
     # # print('my_dick', my_dick.__dict__)
     #
-    # other_dick = client(functions.messages.GetHistoryRequest(
-    #     peer='https://t.me/nn_for_science',
-    #     offset_id=0,
-    #     offset_date=0,
-    #     add_offset=0,
-    #     limit=1,
-    #     max_id=0,
-    #     min_id=0,
-    #     hash=0
-    # ))
+    other_dick = client(GetHistoryRequest(
+        peer='https://t.me/DeepFaker',
+        offset_id=0,
+        offset_date=0,
+        add_offset=0,
+        limit=16,
+        max_id=0,
+        min_id=0,
+        hash=0
+    ))
+    messages_checked_list = check_msg_list_for_adds(other_dick.messages)
     # print('other_dick', other_dick)
-
+    # send_msg(client, 'https://t.me/DeepFaker', [3371], config.MyChannel)
+    print('')
     # print('shared fields', {k: v for k, v in my_dick.items() if other_dick[k] == v})
 
     # messages = client(GetHistoryRequest(

@@ -125,6 +125,13 @@ def open_rules_file():
 
 
 def check_msg_list_for_adds(msg_list: List):
+    """
+    From a list of messages which was planned to be sent removes the ones according to the rules.
+    If at least one of the messages in the group is filtered out, the whole group will be dropped
+    as well.
+    :param msg_list:
+    :return:
+    """
     checkrules_list = open_rules_file()
 
     if checkrules_list is None:
@@ -132,9 +139,22 @@ def check_msg_list_for_adds(msg_list: List):
         return msg_list
 
     messages_checked_list = list()
-    for msg in msg_list:
-        if not is_sponsored(msg, checkrules_list):
-            messages_checked_list.append(msg)
+    spam_group_id = -1
+    spam_message = None
+    spam_message_ids = []
+    for msg in reversed(msg_list):
+        if is_sponsored(msg, checkrules_list):
+            if msg.grouped_id is not None:
+                spam_group_id = msg.grouped_id
+                spam_message = msg.message
+            spam_message_ids.append(msg.id)
+        else:
+            if msg.grouped_id != spam_group_id:
+                messages_checked_list.append(msg)
+            else:
+                logger.debug(f'removed message from spam group {spam_group_id}. Spam message\n{spam_message}')
+                spam_message_ids.append(msg.id)
+    logger.debug('spam_message_ids', spam_message_ids)
     return messages_checked_list
 
 
