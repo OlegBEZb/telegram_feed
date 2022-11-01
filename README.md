@@ -61,6 +61,7 @@ Subscribe to the channels in the telegrams is not required (based on the origina
    1. database will contain user's preferences, subscription lists
    2. bot which everyone can configure for personal needs and personal feed
    3. recsys trained on all users
+      1. Post reactions as features for recommender
 6. Add more complex spam detector
    1. count vectorizer to start with?
    2. Average URL Number per Message
@@ -71,13 +72,25 @@ Subscribe to the channels in the telegrams is not required (based on the origina
 8. Update filtering rules to a list (mb dict with some level of severity)
 9. Check forwarding from channels without subscription
 10. deduplicate if the post covers the same news or the same model (within some period of time). 
-Different opinions  from different channels might be interesting but very similar content 
+Different opinions from different channels might be interesting but very similar content 
 about the same news is definitely not
     1. text similarity?
     2. same references used (links, channels, named entities)
-    3. time of the post is more or less simiral (within 24 hour or sth)
+       1. if channel B refers to channel A in their post, the channel's B note may be added to the
+       channel's A repost at the end as an opinion
+    3. time of the post is more or less similar (within 24 hour or sth)
     4. What to do with that?
        1. First served policy
        2. Somehow aggregate opinions from different channels via updating the first post on this topic
        3. Take better?
 11. Channel recommendation [Vlad](https://github.com/sawyre)'s idea). PageRank?
+12. RL for recommender?
+13. fix Russian spam-filter bypass #промо 
+14. If server is not available, close the session
+15. Print how many messages sent
+16. Add static code analysis
+17. One user can make several bots with different topics and each will be covered with personal recommendations and great 
+spam-checker
+18. If you are going to read several messages and the last one is a part of a group, the group has to be finished
+19. Fix logger levels and format
+20. In debug mode, show what kind of post was forwarded (what media inside)
