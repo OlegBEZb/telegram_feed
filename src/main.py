@@ -3,7 +3,13 @@ import argparse
 from random import randint
 
 import time
+
 import logging
+# logging.basicConfig(
+#         # filename="MainClient.log",
+#         format='%(asctime)s %(module)s %(funcName)s %(levelname)s: %(message)s',
+#         level=logging.WARNING,
+#         datefmt='%Y-%m-%d %I:%M:%S')
 logger = logging.getLogger(__name__)
 
 import coloredlogs
@@ -14,112 +20,56 @@ from typing import List
 # api_hash from https://my.telegram.org, under API Development.
 
 from telethon.sync import TelegramClient
-from telethon.tl.types import MessageFwdHeader, PeerChannel, TypeInputPeer
+from telethon.tl.types import TypeInputPeer
 from telethon.tl.patched import Message
 from telethon.tl.functions.messages import ImportChatInviteRequest, CheckChatInviteRequest
 from telethon.tl.functions.messages import GetPeerDialogsRequest, MarkDialogUnreadRequest
-from telethon.tl.functions.messages import ForwardMessagesRequest, GetHistoryRequest
-from telethon.tl.functions.channels import GetFullChannelRequest
+from telethon.tl.functions.messages import ForwardMessagesRequest
 
-from utils import OpenUpdateTime, SaveUpdateTime, SaveNewTime
-from utils import check_copypaste, check_msg_list_for_adds, check_channel_correctness
+from src.utils import OpenUpdateTime, SaveUpdateTime, SaveNewTime, get_history
+from src.utils import check_channel_correctness
 
-import config
-
-
-def chat_id2name(client: TelegramClient, chat_id):
-    entity = client.get_input_entity(PeerChannel(chat_id))
-    chat_full = client(GetFullChannelRequest(entity))
-    if hasattr(chat_full, 'chats') and len(chat_full.chats) > 0:
-        chat_title = chat_full.chats[0].title
-        return chat_title
-
-
-def get_source_channel_name_for_message(client: TelegramClient, msg: Message):
-    if isinstance(msg.fwd_from, MessageFwdHeader):
-        orig_name = chat_id2name(client, msg.fwd_from.from_id.channel_id)
-        orig_date = msg.fwd_from.date
-        fwd_to_name = chat_id2name(client, msg.chat_id)
-        fwd_date = msg.date
-    else:
-        orig_name = chat_id2name(client, msg.chat_id)
-        orig_date = msg.date
-        fwd_to_name, fwd_date = None, None
-
-    return orig_name, orig_date, fwd_to_name, fwd_date
+from src import config
+from src.filtering.filter import Filter
 
 
 def forward_msgs(client: TelegramClient, peer: TypeInputPeer, msg_list: List[Message], peer_to_forward_to: TypeInputPeer):
-
-    logger.debug(f'messages before checking for advertisements: {len(msg_list)}')
-    messages_checked_list = check_msg_list_for_adds(msg_list)
-    logger.debug(f'messages after checking for advertisements: {len(messages_checked_list)}')
-
-    # have to be more or less global and extended after every message forwarded to my channel
-    my_channel_history = get_history(client=client, min_id=0,
-                                     channel_id=config.MyChannel, limit=100)
-
-    for msg in messages_checked_list:
-        for my_msg in my_channel_history.messages:
-            if check_copypaste(my_msg, msg):
-                orig_name1, orig_date1, fwd_to_name1, fwd_date1 = get_source_channel_name_for_message(client, my_msg)
-                orig_name2, orig_date2, fwd_to_name2, fwd_date2 = get_source_channel_name_for_message(client, msg)
-                if fwd_to_name1 is None:  # channel 1 has it's own post
-                    if fwd_to_name2 is None:  # channel 2 has it's own post
-                        if orig_date1 > orig_date2:
-                            print(f"Message '{my_msg.message[:20]}...' was published by '{orig_name2}' before '{orig_name1}'")
-                        else:
-                            print(f"Message '{my_msg.message[:20]}...' was published by '{orig_name1}' before '{orig_name2}'")
-                    else:  # channel 2 has forwarded post
-                        if orig_date1 > fwd_date2:
-                            print(f"Message '{my_msg.message[:20]}...' was published by '{fwd_to_name2}' (forwarded from '{orig_name2}') before '{orig_name1}'")
-                        else:
-                            print(f"Message '{my_msg.message[:20]}...' was published by '{orig_name1}' before '{fwd_to_name2} (forwarded from '{orig_name2}')")
-                else:  # channel 1 has forwarded post
-                    if fwd_to_name2 is None:  # channel 2 has it's own post
-                        if fwd_date1 > orig_date2:
-                            print(f"Message '{my_msg.message[:20]}...' was published by '{orig_name2}' before '{fwd_to_name1}' (forwarded from '{orig_name1}')")
-                        else:
-                            print(f"Message '{my_msg.message[:20]}...' was published by '{fwd_to_name1}' (forwarded from '{orig_name1}') before '{orig_name2}'")
-                    else:  # channel 2 has forwarded post
-                        if fwd_date1 > fwd_date2:
-                            print(f"Message '{my_msg.message[:20]}...' was reposted by '{fwd_to_name2}' at {fwd_date2} (from '{orig_name2}') before '{fwd_to_name1}' at {fwd_date1} (from '{orig_name1}')")
-                        else:
-                            print(f"Message '{my_msg.message[:20]}...' was reposted by '{fwd_to_name1}' at {fwd_date1} (from '{orig_name1}') before '{fwd_to_name2}' at {fwd_date2} (from '{orig_name2}')")
-                messages_checked_list.remove(msg)
-                break
-    logger.debug(f'after checking with the target channel history {len(messages_checked_list)}')
-
     grouped_msg_ids = list()  # https://github.com/LonamiWebs/Telethon/issues/1216
     msg_non_grouped = list()
     last_grouped_id = -1
-    messages_checked_list.reverse()
 
-    for msg in messages_checked_list:
-        if log_level != 'DEBUG':
-            time.sleep(randint(60, 120))  # not to send all the messages in bulk
-        if msg.grouped_id is not None:
-            if msg.grouped_id == last_grouped_id:
+    for msg in reversed(msg_list):  # starting from the chronologically first
+        if msg.grouped_id is not None:  # the current message is a part of a group
+            if msg.grouped_id == last_grouped_id:  # extending the same group
                 grouped_msg_ids.append(msg.id)
+                logger.debug(f"Group {msg.grouped_id} has one more message to be sent. Total size:{len(grouped_msg_ids)}")
             else:
-                if msg_non_grouped:
+                if msg_non_grouped:  # a group came after a single message
+                    logger.debug('Sending non-grouped messages')
                     send_msg(client, peer, msg_non_grouped, peer_to_forward_to)
                     msg_non_grouped = list()
                 if grouped_msg_ids:  # in case of consequent groups
+                    logger.debug(f"Sending group with last_grouped_id {last_grouped_id}")
                     send_msg(client, peer, grouped_msg_ids, peer_to_forward_to)
                     grouped_msg_ids = list()
                 last_grouped_id = msg.grouped_id
                 grouped_msg_ids.append(msg.id)
-        else:
+                logger.debug(
+                    f"Group {msg.grouped_id} has one more message to be sent. Total size:{len(grouped_msg_ids)}")
+        else:  # the current message is a single message
             if grouped_msg_ids:
+                logger.debug(f"Sending group with last_grouped_id {last_grouped_id}")
                 send_msg(client, peer, grouped_msg_ids, peer_to_forward_to)
                 grouped_msg_ids = list()
             msg_non_grouped.append(msg.id)
+            logger.debug(f"Non-grouped messages list is extended. Total size:{len(msg_non_grouped)}")
 
     if msg_non_grouped:
+        logger.debug('Sending non-grouped messages')
         send_msg(client, peer, msg_non_grouped, peer_to_forward_to)
 
     if grouped_msg_ids:
+        logger.debug("Sending group")
         send_msg(client, peer, grouped_msg_ids, peer_to_forward_to)
 
         # client(MarkDialogUnreadRequest(peer=peer_to_forward_to, unread=True))
@@ -147,14 +97,16 @@ def send_msg(client: TelegramClient, peer, msg_non_grouped: List[int], peer_to_f
     (e.g., usernames, Peer, User or Channel objects, etc.).
     :return:
     """
-    # print('sending msg')
+    if log_level != 'DEBUG':
+        time.sleep(randint(60, 120))  # not to send all the messages in bulk
+    logger.debug('sending msg')
     client(ForwardMessagesRequest(
         from_peer=peer,  # who sent these messages?
         id=msg_non_grouped,  # which are the messages? = grouped_ids
         to_peer=peer_to_forward_to,  # who are we forwarding them to?
         with_my_score=True
     ))
-    logger.debug('sent msg')
+    logger.debug(f'sent msg ids:{msg_non_grouped}')
 
     # if we sent at least one message and the recipient is our channel,
     # we can mark this as unread (by default, read (!unread))
@@ -163,22 +115,8 @@ def send_msg(client: TelegramClient, peer, msg_non_grouped: List[int], peer_to_f
         logger.debug(f"{config.MyChannel} is marked as unread")
 
 
-def get_history(client: TelegramClient, min_id, channel_id, limit=100):
-    messages = client(GetHistoryRequest(
-        peer=channel_id,
-        offset_id=0,
-        offset_date=0,
-        add_offset=0,
-        limit=limit,
-        max_id=0,
-        min_id=min_id,
-        hash=0
-    ))
-    return messages
-
-
 def get_last_msg_id(client: TelegramClient, channel_id):
-    messages = get_history(client=client, min_id=0, channel_id=channel_id, limit=1)
+    messages = get_history(client=client, peer=channel_id, limit=1)
     return messages.messages[0].id
 
 
@@ -202,6 +140,8 @@ def main(client: TelegramClient):
     needSave = False
     channels = OpenUpdateTime()
     MyChannel = config.MyChannel
+
+    filter = Filter(rule_base_check=True, history_check=True, client=client)
 
     for channel_id in channels:
         if channels[channel_id] == 0:  # last message_id is 0 because the channel is added manually
@@ -230,7 +170,7 @@ def main(client: TelegramClient):
             print(f"Channel {channel_id} is added with the last message id={last_msg_id}")
             channels = OpenUpdateTime()
         try:
-            # print(f"Searching for new messages in channel: {channel_id} with the last msg_id {channels[channel_id]}")
+            logger.debug(f"Searching for new messages in channel: {channel_id} with the last msg_id {channels[channel_id]}")
 
             # solution based on the last index mentioned in the json
             # msg_list = GetHistory(client=client, min=channels[channel_id], channel_id=channel_id)
@@ -244,17 +184,18 @@ def main(client: TelegramClient):
                 if dialog.unread_mark:
                     logger.info(f"Channel {channel_id} is marked as unread manually")
                     # if fetched message.grouped_id is not None, fetch until group changes and then send
-                    messages = get_history(client=client, min_id=dialog.top_message - 1, channel_id=channel_id, limit=1)
+                    messages = get_history(client=client, min_id=dialog.top_message - 1, peer=channel_id, limit=1)
                 else:
                     logger.info(f"Channel {channel_id} has {dialog.unread_count} unread posts")
-                    messages = get_history(client=client, min_id=dialog.read_inbox_max_id, channel_id=channel_id,
+                    messages = get_history(client=client, min_id=dialog.read_inbox_max_id, peer=channel_id,
                                            limit=dialog.unread_count)
 
-                msg_list = messages.messages
+                msg_list = messages.messages  # by default their order is descending (recent to old)
 
                 # print(f"Found {len(msg_list)} messages in {messages.chats[0].title} (id={channel_id})")
+                messages_checked_list = filter.filter_messages(msg_list)
 
-                last_msg_id = forward_msgs(client=client, peer=channel_id, msg_list=msg_list,
+                last_msg_id = forward_msgs(client=client, peer=channel_id, msg_list=messages_checked_list,
                                            peer_to_forward_to=MyChannel)
                 channels[channel_id] = last_msg_id
                 # print("last_msg_id: " + str(last_msg_id))
@@ -280,14 +221,11 @@ if __name__ == '__main__':
     args = parser.parse_args()
     log_level = args.log_level.upper()
 
-    logging.basicConfig(
-        filename="MainClient.log",
-        format='%(asctime)s %(name)s %(levelname)s: %(message)s',
-        level=logging.WARNING,
-        datefmt='%Y-%m-%d %I:%M:%S')
+    # if log_level != 'DEBUG':
+    #     logging.getLogger('telethon').setLevel(logging.ERROR)
+    logging.getLogger('telethon').setLevel(logging.ERROR)
+    # telethon.network.mtprotosender
 
-    if log_level != 'DEBUG':
-        logging.getLogger('telethon').setLevel(logging.ERROR)
     logger.setLevel(log_level)
     coloredlogs.install(level=logging.INFO, logger=logger)
 
@@ -297,7 +235,7 @@ if __name__ == '__main__':
     logger.info("Start")
 
     connection_attempts = 1
-    while isNotConnected:
+    while isNotConnected:  # TODO: make a func for that
         try:
             logger.debug(f"Connection attempt: {connection_attempts}")
             client = TelegramClient('telefeed_client', api_id, api_hash)
@@ -315,7 +253,7 @@ if __name__ == '__main__':
             if log_level == 'DEBUG':
                 wait = 10
             else:
-                wait = 300
+                wait = 600
             # print("Waiting for", wait)
             time.sleep(wait)
 

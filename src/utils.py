@@ -1,16 +1,29 @@
 import json
-from typing import List
+import time
+from copy import deepcopy
+
+from telethon import TelegramClient
+from telethon.tl.functions.channels import GetFullChannelRequest
+from telethon.tl.functions.messages import GetHistoryRequest
 
 from telethon.tl.patched import Message
-from telethon.tl.tlobject import TLObject
-from telethon.tl.types import MessageMediaDocument, MessageMediaPhoto, MessageMediaWebPage
+from telethon.tl.types import PeerChannel, MessageFwdHeader
 
 import logging
+
 logger = logging.getLogger(__name__)
+
+from pathlib import Path
+
+
+def get_project_root() -> Path:
+    return Path(__file__).parent.parent
 
 
 def OpenJson(name):
-    with open('data/%s.json' % name, 'r', encoding='utf-8-sig') as f:
+    import os
+    root = get_project_root()
+    with open(os.path.join(root, f"src/data/{name}.json"), 'r', encoding='utf-8-sig') as f:
         data = json.load(f)
     return data
 
@@ -18,144 +31,6 @@ def OpenJson(name):
 def SaveJson(name, data):
     with open('data/%s.json' % name, 'w') as f:
         json.dump(data, f)
-
-
-# def check_copypaste(msg1, msg2, ch1='ch1', ch2='ch2'):
-#     # TODO: check. doesn't work if the post is only an image
-#     if msg1.message == msg2.message and msg1.entities == msg2.entities and msg1.media == msg2.media:
-#         print('Found a duplicate')
-#         print('msg1.message\n', msg1.message[:15], '...', msg1.message[-15:])
-#         print('msg2.message\n', msg2.message[:15], '...', msg2.message[-15:])
-#         print('msg1.entities\n', msg1.entities)
-#         print('msg2.entities\n', msg2.entities)
-#         print('msg1.media\n', msg1.media)
-#         print('msg2.media\n', msg2.media)
-#         if msg1.date > msg2.date:
-#             print(f"Message '{msg1.message[:15]}...' was published by '{ch2}' before '{ch1}'")
-#         else:
-#             print(f"Message '{msg1.message[:20]}...' was published by '{ch1}' before '{ch2}'")
-#         return True
-#     else:
-#         return False
-
-
-def media_is_duplicated(m1, m2):
-    if m1 is None and m2 is None:
-        return True
-
-    if type(m1) is not type(m2):
-        return False
-
-    if isinstance(m1, MessageMediaDocument):
-        d1 = m1.document.to_dict()
-        d2 = m2.document.to_dict()
-    elif isinstance(m1, MessageMediaPhoto):
-        d1 = m1.photo.to_dict()
-        d2 = m2.photo.to_dict()
-    elif isinstance(m1, MessageMediaWebPage):
-        d1 = m1.webpage.to_dict()
-        d2 = m2.webpage.to_dict()
-
-    # file reference is different. https://core.telegram.org/api/file_reference
-    d1.pop('file_reference', None)
-    d2.pop('file_reference', None)
-    # drop date as well?
-    if d1 == d2:
-        return True
-    # else:
-    #     logger.error(f'm1 type {type(m1)} or m2 type {type(m2)} is not TLObject')
-
-    return False
-
-
-def check_copypaste(msg1: Message, msg2: Message):
-    is_copypaste = False
-
-    if msg1.media is None:
-        if msg2.media is None:
-            if msg1.message == msg2.message and msg1.entities == msg2.entities:  # may be empty and None respectively
-                is_copypaste = True
-    else:
-        if msg2.media is not None:
-            # if both media are presented, it's enough to judge regardless of text
-            is_copypaste = media_is_duplicated(msg1.media, msg2.media)
-
-    if is_copypaste:
-        print('Found a duplicate')
-        print('msg1.message\n', msg1.message[:15], '...', msg1.message[-15:])
-        print('msg2.message\n', msg2.message[:15], '...', msg2.message[-15:])
-        print('msg1.entities\n', msg1.entities)
-        print('msg2.entities\n', msg2.entities)
-        print('msg1.media\n', msg1.media)
-        print('msg2.media\n', msg2.media)
-
-    return is_copypaste
-
-
-def is_sponsored(msg: Message, rules_list: List[str]):
-    """
-    Checks if the message contains content to filter. If fails, returns the message as is.
-    Each rules is compared in lowercase against the message
-    :param msg:
-    :param rules_list:
-    :return:
-    """
-    try:
-        for phrase in rules_list:
-            if msg.message.lower().find(phrase.lower()) != -1:
-                # logger.info(f"Message id {msg.id} is filtered according to the rule: {phrase}")
-                logger.info(f"Message id {msg.id} is filtered according to the rule: {phrase}")
-                return True
-        return False
-    except:
-        logger.error(f"Failed to check the message {msg} against the phrase {phrase}")
-        return False
-
-
-def open_rules_file():
-    """
-    Opens file with rules for advertisements and returns a list with rules to apply
-    :return:
-    """
-    ads = OpenJson(name="ads")
-    ads_list = list()
-    for ad in ads:
-        ads_list.append(ad)  # each term may have it's priority. Now it's 0 as a placeholder
-    return ads_list
-
-
-def check_msg_list_for_adds(msg_list: List):
-    """
-    From a list of messages which was planned to be sent removes the ones according to the rules.
-    If at least one of the messages in the group is filtered out, the whole group will be dropped
-    as well.
-    :param msg_list:
-    :return:
-    """
-    checkrules_list = open_rules_file()
-
-    if checkrules_list is None:
-        logger.debug("There are no advertising\\filtering rules to check")
-        return msg_list
-
-    messages_checked_list = list()
-    spam_group_id = -1
-    spam_message = None
-    spam_message_ids = []
-    for msg in reversed(msg_list):
-        if is_sponsored(msg, checkrules_list):
-            if msg.grouped_id is not None:
-                spam_group_id = msg.grouped_id
-                spam_message = msg.message
-            spam_message_ids.append(msg.id)
-        else:
-            if msg.grouped_id != spam_group_id:
-                messages_checked_list.append(msg)
-            else:
-                logger.debug(f'removed message from spam group {spam_group_id}. Spam message\n{spam_message}')
-                spam_message_ids.append(msg.id)
-    logger.debug('spam_message_ids', spam_message_ids)
-    return messages_checked_list
 
 
 def OpenUpdateTime():
@@ -187,3 +62,96 @@ def check_channel_correctness(channel):
         return "error"
     else:
         return channel
+
+
+def get_reactions(msg: Message):
+    if msg.reactions is not None:
+        reactions = msg.reactions.results
+        d = {}
+        for reaction in reactions:
+            d[reaction.reaction] = reaction.count
+        return d
+
+
+def chat_id2name(client: TelegramClient, chat_id):
+    entity = client.get_input_entity(PeerChannel(chat_id))
+    chat_full = client(GetFullChannelRequest(entity))
+    if hasattr(chat_full, 'chats') and len(chat_full.chats) > 0:
+        chat_title = chat_full.chats[0].title
+        return chat_title
+
+
+# TODO: extension to the end of the group
+def get_history(client: TelegramClient, **get_history_request_kwargs):
+    """
+    For reference: https://core.telegram.org/api/offsets.
+
+    :param client:
+    :param peer: Target peer
+    :param offset_id: Only return messages starting from the specified message ID
+    :param offset_date: Only return messages sent before the specified date
+    :param add_offset: Number of list elements to be skipped, negative values are also accepted.
+    :param limit: Number of results to return. A limit on the number of objects to be returned, typically
+    between 1 and 100. When 0 is provided the limit will often default to an intermediate value like ~20.
+    :param max_id: If a positive value was transferred, the method will return only messages with IDs less than
+    max_id
+    :param min_id: 	If a positive value was transferred, the method will return only messages with IDs more than
+    min_id
+    :param hash: Result hash
+
+    :returns messages.Messages: Instance of either Messages, MessagesSlice, ChannelMessages, MessagesNotModified.
+    """
+    get_history_default = {'offset_id': 0, 'offset_date': 0,
+                           'add_offset': 0, 'limit': 1,
+                           'max_id': 0, 'min_id': 0,
+                           'hash': 0}  # min and max ids 0 or -1?
+    # the dict on the right takes precedence
+    get_history_request_kwargs = get_history_default | get_history_request_kwargs
+
+    if get_history_request_kwargs['limit'] > 100:
+        print('downloading by chunks')
+        # messages = get_long_history(client, peer, min_id, limit)
+        partial_kwargs = deepcopy(get_history_request_kwargs)
+        moving_max_id = get_history_request_kwargs['max_id']  # starting from the original ceiling
+        limit = get_history_request_kwargs['limit']
+        messages_total = None
+        while True:
+            partial_kwargs['offset_id'] = moving_max_id
+            partial_kwargs['limit'] = min(100, limit)
+
+            messages = client(GetHistoryRequest(**partial_kwargs))
+            if messages_total is None:
+                messages_total = messages
+            else:
+                # messages and chats users to flat
+                messages_total.messages += messages.messages
+                messages_total.chats += [c for c in messages.chats if c not in messages_total.chats]
+                messages_total.users += [c for c in messages.users if c not in messages_total.users]
+            dumped_num = len(messages.messages)
+            print('dumped', dumped_num, 'more messages')
+            print('total', len(messages_total.messages))
+
+            limit -= dumped_num
+            if dumped_num < 100 or limit == 0:
+                break
+            moving_max_id = min(msg.id for msg in messages.messages)
+
+            time.sleep(1)
+        messages = messages_total
+    else:
+        messages = client(GetHistoryRequest(**get_history_request_kwargs))
+    return messages
+
+
+def get_source_channel_name_for_message(client: TelegramClient, msg: Message):
+    if isinstance(msg.fwd_from, MessageFwdHeader):
+        orig_name = chat_id2name(client, msg.fwd_from.from_id.channel_id)
+        orig_date = msg.fwd_from.date
+        fwd_to_name = chat_id2name(client, msg.chat_id)
+        fwd_date = msg.date
+    else:
+        orig_name = chat_id2name(client, msg.chat_id)
+        orig_date = msg.date
+        fwd_to_name, fwd_date = None, None
+
+    return orig_name, orig_date, fwd_to_name, fwd_date
