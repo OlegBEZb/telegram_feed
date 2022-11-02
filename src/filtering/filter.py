@@ -6,7 +6,6 @@ from src.utils import logger, OpenJson, get_history, get_source_channel_name_for
 from src import config
 
 import logging
-
 logger = logging.getLogger(__name__)
 
 
@@ -244,26 +243,12 @@ class Filter:
 
 
 if __name__ == '__main__':
-    from telethon.sync import TelegramClient
-    import time
+    from src.utils import start_client
     from telethon.tl.functions.messages import GetHistoryRequest
 
-    api_id = config.api_id
-    api_hash = config.api_hash
-    isNotConnected = True
-
-    connection_attempts = 1
-    while isNotConnected:
-        try:
-            logger.debug(f"Connection attempt: {connection_attempts}")
-            client = TelegramClient('telefeed_client', api_id, api_hash)
-            client.start()
-            logger.debug('TelegramClient is started\n')
-            isNotConnected = False
-        except Exception as e:
-            connection_attempts += 1
-            logger.debug(str(e))
-            time.sleep(30)
+    # https://arabic-telethon.readthedocs.io/en/stable/extra/advanced-usage/mastering-telethon.html#asyncio-madness
+    import telethon.sync
+    client = start_client()
 
     my_channel_history = get_history(client=client, peer=config.MyChannel, limit=50)
     filtering_component = Filter(rule_base_check=True, history_check=True, client=client)

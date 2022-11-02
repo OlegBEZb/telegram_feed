@@ -18,7 +18,7 @@ from telethon.tl.functions.messages import GetPeerDialogsRequest, MarkDialogUnre
 from telethon.tl.functions.messages import ForwardMessagesRequest
 
 from src.utils import OpenUpdateTime, SaveUpdateTime, SaveNewTime, get_history, CheckCorrectlyPrivateLink, \
-    Subs2PrivateChat
+    Subs2PrivateChat, start_client
 from src.utils import check_channel_correctness
 
 from src import config
@@ -212,23 +212,8 @@ if __name__ == '__main__':
     #     logging.getLogger('telethon').setLevel(logging.ERROR)
     logging.getLogger('telethon').setLevel(logging.ERROR)
 
-    api_id = config.api_id
-    api_hash = config.api_hash
-    isNotConnected = True
     logger.info("Start")
-
-    connection_attempts = 1
-    while isNotConnected:  # TODO: make a func for that
-        try:
-            logger.debug(f"Connection attempt: {connection_attempts}")
-            client = TelegramClient('telefeed_client', api_id, api_hash)
-            client.start()
-            logger.debug('TelegramClient is started\n')
-            isNotConnected = False
-        except Exception as e:
-            connection_attempts += 1
-            logger.error(str(e))
-            time.sleep(30)
+    client = start_client()
 
     while True:
         try:

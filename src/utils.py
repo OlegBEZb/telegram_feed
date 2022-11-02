@@ -12,6 +12,8 @@ from telethon.tl.types import PeerChannel, MessageFwdHeader
 import logging
 logger = logging.getLogger(__name__)
 
+from src import config
+
 from pathlib import Path
 
 
@@ -170,3 +172,24 @@ def Subs2PrivateChat(client: TelegramClient, req):
         client.edit_folder(updates.chats, 1)  # 1 is archived 0 unarchived
     except:
         print("already subs")
+
+
+def start_client():
+    api_id = config.api_id
+    api_hash = config.api_hash
+
+    isNotConnected = True
+    connection_attempts = 1
+    while isNotConnected:
+        try:
+            logger.debug(f"Connection attempt: {connection_attempts}")
+            client = TelegramClient('telefeed_client', api_id, api_hash)
+            client.start()
+            logger.debug('TelegramClient is started\n')
+            isNotConnected = False
+        except Exception as e:
+            connection_attempts += 1
+            logger.error(str(e))
+            time.sleep(30)
+
+    return client
