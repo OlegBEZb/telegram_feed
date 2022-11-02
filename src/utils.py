@@ -4,13 +4,12 @@ from copy import deepcopy
 
 from telethon import TelegramClient
 from telethon.tl.functions.channels import GetFullChannelRequest
-from telethon.tl.functions.messages import GetHistoryRequest
+from telethon.tl.functions.messages import GetHistoryRequest, CheckChatInviteRequest, ImportChatInviteRequest
 
 from telethon.tl.patched import Message
 from telethon.tl.types import PeerChannel, MessageFwdHeader
 
 import logging
-
 logger = logging.getLogger(__name__)
 
 from pathlib import Path
@@ -155,3 +154,19 @@ def get_source_channel_name_for_message(client: TelegramClient, msg: Message):
         fwd_to_name, fwd_date = None, None
 
     return orig_name, orig_date, fwd_to_name, fwd_date
+
+
+def CheckCorrectlyPrivateLink(client: TelegramClient, req):
+    try:
+        client(CheckChatInviteRequest(hash=req))
+        return True
+    except:
+        return False
+
+
+def Subs2PrivateChat(client: TelegramClient, req):
+    try:
+        updates = client(ImportChatInviteRequest(req))
+        client.edit_folder(updates.chats, 1)  # 1 is archived 0 unarchived
+    except:
+        print("already subs")

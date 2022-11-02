@@ -1,14 +1,18 @@
+# Byte-compiled / optimized / DLL files
 __pycache__/
+
+*/.ipynb_checkpoints/
 
 .vscode/
 
+# telegram
 *.session
 *.session-journal
+*.log
 
 test.py
 
-
-*.log
+# pycharm
 .DS_Store
 .idea
 

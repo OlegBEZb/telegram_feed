@@ -73,32 +73,32 @@ def message_is_duplicated(msg: Message, history, client):
             if fwd_to_name1 is None:  # channel 1 has it's own post
                 if fwd_to_name2 is None:  # channel 2 has it's own post
                     if orig_date1 > orig_date2:
-                        print(
+                        logger.debug(
                             f"Message '{history_msg.message[:20]}...' was published by '{orig_name2}' before '{orig_name1}'")
                     else:
-                        print(
+                        logger.debug(
                             f"Message '{history_msg.message[:20]}...' was published by '{orig_name1}' before '{orig_name2}'")
                 else:  # channel 2 has forwarded post
                     if orig_date1 > fwd_date2:
-                        print(
+                        logger.debug(
                             f"Message '{history_msg.message[:20]}...' was published by '{fwd_to_name2}' (forwarded from '{orig_name2}') before '{orig_name1}'")
                     else:
-                        print(
+                        logger.debug(
                             f"Message '{history_msg.message[:20]}...' was published by '{orig_name1}' before '{fwd_to_name2} (forwarded from '{orig_name2}')")
             else:  # channel 1 has forwarded post
                 if fwd_to_name2 is None:  # channel 2 has it's own post
                     if fwd_date1 > orig_date2:
-                        print(
+                        logger.debug(
                             f"Message '{history_msg.message[:20]}...' was published by '{orig_name2}' before '{fwd_to_name1}' (forwarded from '{orig_name1}')")
                     else:
-                        print(
+                        logger.debug(
                             f"Message '{history_msg.message[:20]}...' was published by '{fwd_to_name1}' (forwarded from '{orig_name1}') before '{orig_name2}'")
                 else:  # channel 2 has forwarded post
                     if fwd_date1 > fwd_date2:
-                        print(
+                        logger.debug(
                             f"Message '{history_msg.message[:20]}...' was reposted by '{fwd_to_name2}' at {fwd_date2} (from '{orig_name2}') before '{fwd_to_name1}' at {fwd_date1} (from '{orig_name1}')")
                     else:
-                        print(
+                        logger.debug(
                             f"Message '{history_msg.message[:20]}...' was reposted by '{fwd_to_name1}' at {fwd_date1} (from '{orig_name1}') before '{fwd_to_name2}' at {fwd_date2} (from '{orig_name2}')")
             return True
     return False
@@ -229,7 +229,7 @@ class Filter:
                     logger.debug(
                         f'removed an indirect spam message from to_drop group {to_drop_group_id}. To_drop message\n{to_drop_message}')
                     to_drop_message_ids.append(msg.id)
-        logger.debug('to_drop_message_ids', to_drop_message_ids)
+        logger.debug(f'to_drop_message_ids: {to_drop_message_ids}')
 
         after_check_drop_list = []
         for msg in msg_list_filtered:
@@ -255,25 +255,25 @@ if __name__ == '__main__':
     connection_attempts = 1
     while isNotConnected:
         try:
-            print(f"Connection attempt: {connection_attempts}")
+            logger.debug(f"Connection attempt: {connection_attempts}")
             client = TelegramClient('telefeed_client', api_id, api_hash)
             client.start()
-            print('TelegramClient is started\n')
+            logger.debug('TelegramClient is started\n')
             isNotConnected = False
         except Exception as e:
             connection_attempts += 1
-            print(str(e))
+            logger.debug(str(e))
             time.sleep(30)
 
     my_channel_history = get_history(client=client, peer=config.MyChannel, limit=50)
     filtering_component = Filter(rule_base_check=True, history_check=True, client=client)
 
     to_filter_messages = client(GetHistoryRequest(
-        peer='https://t.me/deepfaker',
+        peer='https://t.me/cryptovalerii',
         offset_id=0,
         offset_date=0,
         add_offset=0,
-        limit=3,
+        limit=1,
         max_id=0,
         min_id=0,
         hash=0
