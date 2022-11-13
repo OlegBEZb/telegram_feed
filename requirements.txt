@@ -1,3 +1,2 @@
 telethon
-telepot
 cryptg

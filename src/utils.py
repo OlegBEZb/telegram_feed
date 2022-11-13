@@ -276,14 +276,14 @@ def get_history(client: TelegramClient, **get_history_request_kwargs):
     return messages
 
 
-def get_source_channel_name_for_message(client: TelegramClient, msg: Message):
+async def get_source_channel_name_for_message(client: TelegramClient, msg: Message):
     if isinstance(msg.fwd_from, MessageFwdHeader):
-        orig_name = get_channel_name(client, msg.fwd_from.from_id.channel_id)
+        orig_name = await get_channel_name(client, msg.fwd_from.from_id.channel_id)
         orig_date = msg.fwd_from.date
-        fwd_to_name = get_channel_name(client, msg.chat_id)
+        fwd_to_name = await get_channel_name(client, msg.chat_id)
         fwd_date = msg.date
     else:
-        orig_name = get_channel_name(client, msg.chat_id)
+        orig_name = await get_channel_name(client, msg.chat_id)
         orig_date = msg.date
         fwd_to_name, fwd_date = None, None
 

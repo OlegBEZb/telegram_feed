@@ -24,8 +24,20 @@ from src.filtering.filter import Filter
 bot = TelegramClient('bot_main', config.api_id, config.api_hash).start(bot_token=config.bot_token)
 
 
-def forward_msgs(client: TelegramClient, peer: TypeInputPeer, msg_list: List[Message],
-                 peer_list_to_forward_to: List[TypeInputPeer]):
+def forward_msgs(client: TelegramClient,
+                 peer: TypeInputPeer,
+                 msg_list: List[Message],
+                 peer_to_forward_to: TypeInputPeer):
+    """
+    Forward messages in small pieces.
+
+    :param client:
+    :param personal_client:
+    :param peer:
+    :param msg_list:
+    :param peer_to_forward_to:
+    :return:
+    """
     grouped_msg_ids = list()  # https://github.com/LonamiWebs/Telethon/issues/1216
     msg_non_grouped = list()
     last_grouped_id = -1
@@ -38,12 +50,12 @@ def forward_msgs(client: TelegramClient, peer: TypeInputPeer, msg_list: List[Mes
             else:
                 if msg_non_grouped:  # a group came after a single message
                     logger.debug(f'Sending {len(msg_non_grouped)} non-grouped message(s)')
-                    send_msg(client, peer, msg_non_grouped, peer_list_to_forward_to)
+                    send_msg(client, peer, msg_non_grouped, peer_to_forward_to)
                     msg_non_grouped = list()
                 if grouped_msg_ids:  # in case of consequent groups
                     logger.debug(
                         f"Sending group of {len(grouped_msg_ids)} message(s) with last_grouped_id {last_grouped_id}")
-                    send_msg(client, peer, grouped_msg_ids, peer_list_to_forward_to)
+                    send_msg(client, peer, grouped_msg_ids, peer_to_forward_to)
                     grouped_msg_ids = list()
                 last_grouped_id = msg.grouped_id
                 grouped_msg_ids.append(msg.id)
@@ -52,55 +64,54 @@ def forward_msgs(client: TelegramClient, peer: TypeInputPeer, msg_list: List[Mes
         else:  # the current message is a single message
             if grouped_msg_ids:
                 logger.debug(f"Sending group of {len(grouped_msg_ids)} message(s) with last_grouped_id {last_grouped_id}")
-                send_msg(client, peer, grouped_msg_ids, peer_list_to_forward_to)
+                send_msg(client, peer, grouped_msg_ids, peer_to_forward_to)
                 grouped_msg_ids = list()
             msg_non_grouped.append(msg.id)
             logger.debug(f"Non-grouped messages list is extended. Total size: {len(msg_non_grouped)}")
 
     if msg_non_grouped:
         logger.debug(f'Sending {len(msg_non_grouped)} non-grouped message(s)')
-        send_msg(client, peer, msg_non_grouped, peer_list_to_forward_to)
+        send_msg(client, peer, msg_non_grouped, peer_to_forward_to)
 
     if grouped_msg_ids:
         logger.debug(f"Sending group of {len(grouped_msg_ids)} message(s) with last_grouped_id {last_grouped_id}")
-        send_msg(client, peer, grouped_msg_ids, peer_list_to_forward_to)
+        send_msg(client, peer, grouped_msg_ids, peer_to_forward_to)
 
 
 def send_msg(client: TelegramClient, peer, msg_ids_to_forward: List[int],
-             peer_list_to_forward_to: List[TypeInputPeer]):
+             peer_to_forward_to: TypeInputPeer):
     """
 
     :param client:
     :param peer: Anything entity-like will work if the library can find its Input version
     (e.g., usernames, Peer, User or Channel objects, etc.).
     :param msg_ids_to_forward: A list must be supplied.
-    :param peer_list_to_forward_to: Anything entity-like will work if the library can find its Input version
+    :param peer_to_forward_to: Anything entity-like will work if the library can find its Input version
     (e.g., usernames, Peer, User or Channel objects, etc.).
     :return:
     """
     if log_level != 'DEBUG':
         time.sleep(randint(5, 20))  # not to send all the messages in bulk
 
-    for peer_to_forward_to in peer_list_to_forward_to:
-        logger.log(5, f'sending msg to {peer_to_forward_to}')
+    logger.log(5, f'sending msg to {peer_to_forward_to}')
 
-        try:
-            client(ForwardMessagesRequest(
-                from_peer=peer,  # who sent these messages?
-                id=msg_ids_to_forward,  # which are the messages? = grouped_ids
-                to_peer=peer_to_forward_to,  # who are we forwarding them to?
-                with_my_score=True
-            ))
-            logger.debug(f'sent msg ids: {msg_ids_to_forward} to {peer_to_forward_to}')
+    try:
+        client(ForwardMessagesRequest(
+            from_peer=peer,  # who sent these messages?
+            id=msg_ids_to_forward,  # which are the messages? = grouped_ids
+            to_peer=peer_to_forward_to,  # who are we forwarding them to?
+            with_my_score=True
+        ))
+        logger.debug(f'sent msg ids: {msg_ids_to_forward} to {peer_to_forward_to}')
 
-            # if we sent at least one message and the recipient is our channel,
-            # we can mark this as unread (by default, read (!unread))
-            # can be performed only with user client, not bot
-            # if peer_to_forward_to == config.MyChannel:
-            #     client(MarkDialogUnreadRequest(peer=peer_to_forward_to, unread=True))
-            #     logger.debug(f"{peer_to_forward_to} is marked as unread")
-        except:
-            logger.error(f'Was not able send the message to {peer_to_forward_to}', exc_info=True)
+        # if we sent at least one message and the recipient is our channel,
+        # we can mark this as unread (by default, read (!unread))
+        # can be performed only with user client, not bot
+        # if peer_to_forward_to == config.MyChannel:
+        #     client(MarkDialogUnreadRequest(peer=peer_to_forward_to, unread=True))
+        #     logger.debug(f"{peer_to_forward_to} is marked as unread")
+    except:
+        logger.error(f'Was not able send the message to {peer_to_forward_to}', exc_info=True)
 
 
 def get_last_msg_id(client: TelegramClient, channel_id):
@@ -115,9 +126,6 @@ def main(client: TelegramClient):
     for k, v in feeds.items():
         for x in v:
             scr2dst.setdefault(x, []).append(k)
-
-    # TODO: perform history check later wrt the dst channel
-    filter = Filter(rule_base_check=True, history_check=False, client=client)
 
     for channel_id, dst_channels in scr2dst.items():  # pool of all channels for all users
         # if channels[channel_id] == 0:  # last message_id is 0 because the channel is added manually
@@ -172,15 +180,18 @@ def main(client: TelegramClient):
 
             if do_process_channel:
                 msg_list = messages.messages  # by default their order is descending (recent to old)
-
                 logger.debug(f"Found {len(msg_list)} message(s) in {messages.chats[0].title} (id={channel_id})")
-                messages_checked_list = filter.filter_messages(msg_list)
-                logger.debug(f'Before filtering: {len(msg_list)}. After {len(messages_checked_list)}')
 
-                # forward_msgs(client=client, peer=channel_id, msg_list=messages_checked_list,
-                #              peer_to_forward_to=dst_channels)  # config.MyChannel
-                forward_msgs(client=bot, peer=channel_id, msg_list=messages_checked_list,
-                             peer_list_to_forward_to=dst_channels)
+                for dst_ch in dst_channels:
+                    # TODO: perform history check later wrt the dst channel and it's rb list
+                    filter = Filter(rule_base_check=True, history_check=True, client=client, dst_channel=dst_ch)
+                    messages_checked_list = filter.filter_messages(msg_list)
+                    logger.debug(f'Before filtering: {len(msg_list)}. After {len(messages_checked_list)}')
+
+                    # forward_msgs(client=client, peer=channel_id, msg_list=messages_checked_list,
+                    #              peer_to_forward_to=dst_channels)  # config.MyChannel
+                    forward_msgs(client=bot, peer=channel_id, msg_list=messages_checked_list,
+                                 peer_to_forward_to=dst_ch)
 
                 last_msg_id = msg_list[0].id
                 last_channel_ids = update_last_channel_ids(channel_id, last_msg_id)

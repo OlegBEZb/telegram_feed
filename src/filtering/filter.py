@@ -2,6 +2,8 @@ from typing import List
 from telethon.tl.patched import Message
 from telethon.tl.types import MessageMediaDocument, MessageMediaPhoto, MessageMediaWebPage, MessageMediaPoll
 
+import asyncio
+
 from src.utils import logger, OpenJson, get_history, get_source_channel_name_for_message
 from src import config
 
@@ -67,8 +69,8 @@ def message_is_duplicated(msg: Message, history, client):
     for history_msg in history.messages:
         if message_is_same(history_msg, msg):
             # the rest of the function is for debugging purposes
-            orig_name1, orig_date1, fwd_to_name1, fwd_date1 = get_source_channel_name_for_message(client, history_msg)
-            orig_name2, orig_date2, fwd_to_name2, fwd_date2 = get_source_channel_name_for_message(client, msg)
+            orig_name1, orig_date1, fwd_to_name1, fwd_date1 = asyncio.get_event_loop().run_until_complete(get_source_channel_name_for_message(client, history_msg))
+            orig_name2, orig_date2, fwd_to_name2, fwd_date2 = asyncio.get_event_loop().run_until_complete(get_source_channel_name_for_message(client, msg))
             if fwd_to_name1 is None:  # channel 1 has it's own post
                 if fwd_to_name2 is None:  # channel 2 has it's own post
                     if orig_date1 > orig_date2:
@@ -169,10 +171,11 @@ def check_messages_with_rules(msg_list: List[Message]) -> List[Message]:
 
 
 class Filter:
-    def __init__(self, rule_base_check=True, history_check=True, client=None):
+    def __init__(self, rule_base_check=True, history_check=True, client=None, dst_channel=None):
         self.rule_base_check = rule_base_check
         self.history_check = history_check
         self.client = client
+        self.dst_channel = dst_channel
 
         if self.rule_base_check:
             self.checkrules_list = open_rules_file()  # TODO: add path
@@ -182,6 +185,8 @@ class Filter:
 
         if self.history_check and (self.client is None):
             raise ValueError("If history check is performed, 'client' parameter has to be provided")
+        if self.history_check and (self.dst_channel is None):
+            raise ValueError("If history check is performed, 'dst_channel' parameter has to be provided")
 
     def filter_messages(self, msg_list: List[Message]) -> List[Message]:
         """
@@ -192,16 +197,16 @@ class Filter:
         """
         # TODO: check order twice
         if self.rule_base_check:
-            logger.debug("Performing a rule-based filtering")
+            logger.log(5, f"Performing a rule-based filtering for {self.dst_channel}")
             msg_list = self._filter(msg_list, filter_func=message_is_filtered_by_rules, rules_list=self.checkrules_list)
             if len(msg_list) == 0:
                 return []
         if self.history_check:
-            logger.debug("Performing a history filtering")
+            logger.debug(f"Performing a history filtering for {self.dst_channel}")
             # have to be more or less global and extended after every message forwarded to my channel
-            my_channel_history = get_history(client=self.client, peer=config.MyChannel, limit=100)
+            dst_channel_history = get_history(client=self.client, peer=config.MyChannel, limit=100)
             msg_list = self._filter(msg_list, filter_func=message_is_duplicated,
-                                    history=my_channel_history, client=self.client)
+                                    history=dst_channel_history, client=self.client)
         return msg_list
 
     def _filter(self, msg_list: List[Message], filter_func, **filter_func_kwargs) -> List[Message]:
@@ -226,9 +231,9 @@ class Filter:
                     msg_list_filtered.append(msg)
                 else:
                     logger.debug(
-                        f'removed an indirect spam message from to_drop group {to_drop_group_id}. To_drop message\n{to_drop_message}')
+                        f'removed an indirect spam message from to_drop group {to_drop_group_id}. To_drop message\n{to_drop_message[:20]}')
                     to_drop_message_ids.append(msg.id)
-        logger.debug(f'to_drop_message_ids: {to_drop_message_ids}')
+        logger.log(5, f'to_drop_message_ids: {to_drop_message_ids}')
 
         after_check_drop_list = []
         for msg in msg_list_filtered:
@@ -248,7 +253,7 @@ if __name__ == '__main__':
 
     # https://arabic-telethon.readthedocs.io/en/stable/extra/advanced-usage/mastering-telethon.html#asyncio-madness
     import telethon.sync
-    client = start_client()
+    client = start_client('filter_client')
 
     my_channel_history = get_history(client=client, peer=config.MyChannel, limit=50)
     filtering_component = Filter(rule_base_check=True, history_check=True, client=client)
