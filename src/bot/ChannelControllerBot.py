@@ -7,9 +7,8 @@ from telepot.namedtuple import InlineKeyboardMarkup, InlineKeyboardButton
 from telepot.delegate import (
     per_chat_id, create_open, pave_event_space, include_callback_query_chat_id)
 
-from src.utils import check_channel_correctness
-from utils import OpenJson, SaveJson
-import config
+from src.utils import check_channel_correctness, OpenJson, SaveJson
+from src import config
 
 
 def AddChannel(key):
