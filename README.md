@@ -99,6 +99,9 @@ spam-checker
 22. trace channel name changes
 23. clean `https://t.me/profunctor_io`
 24. add deletion from channel
+25. create a func for deleting messages via bot
+26. send some filtered digest to user like "5 msg from this channel were filtered due to this and this filter. you can
+still find this content via this link"
 
 # Developing notes
 1. It was a news for me that programming a telegram bot is not the only thing you can program for Telegram. Telegram

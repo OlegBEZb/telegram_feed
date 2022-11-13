@@ -155,10 +155,13 @@ def main(client: TelegramClient):
 
             do_process_channel = False
 
-            # solution based on the last index mentioned in the json
-            # for the just added channel with the default last message id equals 0, load only one message
+            # solution based on the last index mentioned in the json. We can't just check if there are some unread
+            # messages because for that you have to be subscribed to the channel. Otherwise, you must anchor yourself to
+            # some message ID in the past - this is what we do. For the just added channel with the default last
+            # message id of 0, the batch will be large. But after disconnections this limit of 100 may be insufficient
+            # and there will be gaps
             messages = get_history(client=client, min_id=last_channel_ids[channel_id], peer=channel_id,
-                                   limit=1)
+                                   limit=100)
             if len(messages.messages) > 0:
                 do_process_channel = True
             else:

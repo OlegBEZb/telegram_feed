@@ -277,15 +277,25 @@ def get_history(client: TelegramClient, **get_history_request_kwargs):
 
 
 async def get_source_channel_name_for_message(client: TelegramClient, msg: Message):
-    if isinstance(msg.fwd_from, MessageFwdHeader):
-        orig_name = await get_channel_name(client, msg.fwd_from.from_id.channel_id)
-        orig_date = msg.fwd_from.date
-        fwd_to_name = await get_channel_name(client, msg.chat_id)
-        fwd_date = msg.date
-    else:
-        orig_name = await get_channel_name(client, msg.chat_id)
-        orig_date = msg.date
-        fwd_to_name, fwd_date = None, None
+    try:
+        if isinstance(msg.fwd_from, MessageFwdHeader):
+            if msg.fwd_from.from_id is not None:
+                orig_name = await get_channel_name(client, msg.fwd_from.from_id.channel_id)
+            elif msg.fwd_from.from_name is not None:
+                orig_name = msg.fwd_from.from_name
+            else:
+                logger.error(f'Failed to define the origins of the message\n{msg.stringify()}')
+                orig_name = 'Undefined'
+            orig_date = msg.fwd_from.date
+            fwd_to_name = await get_channel_name(client, msg.chat_id)
+            fwd_date = msg.date
+        else:
+            orig_name = await get_channel_name(client, msg.chat_id)
+            orig_date = msg.date
+            fwd_to_name, fwd_date = None, None
+    except:
+        logger.error(f"Failed to get source channel name and date\n{msg.stringify()}", exc_info=True)
+        return None, None, None, None
 
     return orig_name, orig_date, fwd_to_name, fwd_date
 
