@@ -52,6 +52,13 @@ COMMANDS = {  # command description used in the "help" command
                        "\nExample: /add_to_channel t.me/channel_of_interest t.me/your_destination_channel"),
 }
 
+# TODO: move to a separate file and dynamically add to the list of handlers like in
+# https://github.com/Lonami/TelethonianBotExt
+# these commands should be available and visible only for devs
+ADMIN_COMMANDS = {
+    'users': 'Lists users'
+}
+
 bot = TelegramClient('bot', config.api_id, config.api_hash).start(bot_token=config.bot_token)
 
 
@@ -100,45 +107,53 @@ async def update_channel_participant(e):
 
 @bot.on(events.NewMessage(pattern='/help'))
 async def command_help(event):
-    if isinstance(event.chat, types.User):
-        sender_id = event.chat_id
-        help_text = "The following commands are available: \n"
-        for key in COMMANDS:  # generate help text out of the commands dictionary defined at the top
-            help_text += "/" + key + ": "
-            help_text += COMMANDS[key] + "\n"
-        await bot.send_message(sender_id, help_text)
-        logger.debug(f"Sent help to {sender_id}")
+    sender_id = event.chat_id
+    if not isinstance(event.chat, types.User):
+        await event.reply("Communication with the bot has to be performed only in direct messages, not public channels")
+        return
+
+    help_text = "The following commands are available: \n"
+    for key in COMMANDS:  # generate help text out of the commands dictionary defined at the top
+        help_text += "/" + key + ": "
+        help_text += COMMANDS[key] + "\n"
+    await bot.send_message(sender_id, help_text)
+    logger.debug(f"Sent help to {sender_id}")
 
 
 @bot.on(events.NewMessage(pattern='/start'))
 async def command_start(event):
-    if isinstance(event.chat, types.User):
-        sender_id = event.chat_id
-        await bot.send_message(sender_id, COMMANDS['start'])
-        users = get_users()
-        if str(sender_id) not in users:  # if user hasn't used the "/start" command yet:
-            users[sender_id] = []
-            save_users(users)
-            await command_help(event)  # show the new user the help page
-            logger.info(f"New user {sender_id} started the bot")
-        else:
-            await bot.send_message(sender_id, "I already have you in my database")
+    sender_id = event.chat_id
+    if not isinstance(event.chat, types.User):
+        await event.reply("Communication with the bot has to be performed only in direct messages, not public channels")
+        return
+
+    await bot.send_message(sender_id, COMMANDS['start'])
+    users = get_users()
+    if str(sender_id) not in users:  # if user hasn't used the "/start" command yet:
+        users[sender_id] = []
+        save_users(users)
+        await command_help(event)  # show the new user the help page
+        logger.info(f"New user {sender_id} started the bot")
+    else:
+        await bot.send_message(sender_id, "I already have you in my database")
 
 
 @bot.on(events.NewMessage(pattern='/about'))
 async def command_about(event):
-    if not isinstance(event.chat, types.User):
-        return
     sender_id = event.chat_id
+    if not isinstance(event.chat, types.User):
+        await event.reply("Communication with the bot has to be performed only in direct messages, not public channels")
+        return
     await bot.send_message(sender_id, COMMANDS['about'])
     logger.debug(f"Sent about to {sender_id}")
 
 
 @bot.on(events.NewMessage(pattern='/channel_info'))
 async def command_channel_info(event):
-    if not isinstance(event.chat, types.User):
-        return
     sender_id = event.chat_id
+    if not isinstance(event.chat, types.User):
+        await event.reply("Communication with the bot has to be performed only in direct messages, not public channels")
+        return
     message = event.message
     _, dst_ch = message.text.split()
     dst_ch = check_channel_correctness(dst_ch)
@@ -162,9 +177,10 @@ async def command_channel_info(event):
 
 @bot.on(events.NewMessage(pattern='/my_channels'))
 async def command_my_channels(event):
-    if not isinstance(event.chat, types.User):
-        return
     sender_id = event.chat_id
+    if not isinstance(event.chat, types.User):
+        await event.reply("Communication with the bot has to be performed only in direct messages, not public channels")
+        return
     users = get_users()
     users_channels = users[str(sender_id)]
     if len(users_channels) == 0:
@@ -176,11 +192,15 @@ async def command_my_channels(event):
 
 @bot.on(events.NewMessage(pattern='/add_to_channel'))
 async def command_add_to_channel(event):
+    sender_id = event.chat_id
+    if not isinstance(event.chat, types.User):
+        await event.reply("Communication with the bot has to be performed only in direct messages, not public channels")
+        return
     try:
-        sender_id = event.chat_id
         message = event.message
         # TODO: add any number of channels before the last/destination one
         _, src_ch, dst_ch = message.text.split()
+        # TODO: add assert for the incorrect format
         src_ch, dst_ch = check_channel_correctness(src_ch), check_channel_correctness(dst_ch)
 
         entity = await bot.get_input_entity(dst_ch)
@@ -201,6 +221,7 @@ async def command_add_to_channel(event):
 
         update_feed(feeds, dst_ch, src_ch, add_not_remove=True)
         save_feeds(feeds)
+        # TODO: add notification that the channel was already there
         await event.reply(f"Added! Now your reading list is the following:\n{list_to_str_newline(feeds[dst_ch])}")
     except:
         await event.reply(f"Was not able to add channel. Check if your destination channel is public and the bot is added as admin")
@@ -219,12 +240,15 @@ async def admin_command_users(event):
     if len(users) == 0:
         await event.reply(f"You don't have any yet")
     else:
+        # TODO: add the number of channels per user
         user_names = [await get_user_display_name(bot, int(u)) for u in users]
         await event.reply(f"Your {len(users)} user(s) (sorted chronologically):\n{list_to_str_newline(user_names)}")
 
 
 @bot.on(events.NewMessage)  # UpdateNewMessage
 async def echo_all(event):
+    if not isinstance(event.chat, types.User):
+        return
     message = event.message
     cmd = message.text.split()[0]
     if cmd[0] == '/':

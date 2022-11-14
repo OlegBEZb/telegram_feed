@@ -128,6 +128,8 @@ def main(client: TelegramClient):
             scr2dst.setdefault(x, []).append(k)
 
     for channel_id, dst_channels in scr2dst.items():  # pool of all channels for all users
+        # TODO: resurrect it back. When the channel is just added with 0 from default dict, give some small portion of
+        # content. Not 100
         # if channels[channel_id] == 0:  # last message_id is 0 because the channel is added manually
         #     logger.debug(f"Channel {channel_id} is just added and doesn't have the last message id")
         #     # if channel_id.find("t.me/joinchat") != -1:
@@ -161,7 +163,7 @@ def main(client: TelegramClient):
             # message id of 0, the batch will be large. But after disconnections this limit of 100 may be insufficient
             # and there will be gaps
             messages = get_history(client=client, min_id=last_channel_ids[channel_id], peer=channel_id,
-                                   limit=100)
+                                   limit=50)
             if len(messages.messages) > 0:
                 do_process_channel = True
             else:
@@ -199,6 +201,7 @@ def main(client: TelegramClient):
                 last_msg_id = msg_list[0].id
                 last_channel_ids = update_last_channel_ids(channel_id, last_msg_id)
 
+                # TODO: probably do this only for my subs.
                 client.send_read_acknowledge(channel_id, msg_list)
                 logger.debug(f"Channel {channel_id} is marked as read")
 
