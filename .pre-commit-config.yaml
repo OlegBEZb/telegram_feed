@@ -1,0 +1,14 @@
+# To install the git pre-commit hook run:
+# pre-commit install
+# To update the pre-commit hooks run:
+#  pre-commit install-hooks
+# See https://pre-commit.com for more information
+# See https://pre-commit.com/hooks.html for more hooks
+repos:
+-   repo: https://github.com/PyCQA/prospector
+    rev: 1.8.0rc1
+    hooks:
+    -   id: prospector
+        additional_dependencies:
+        -   ".[with_everything]"
+        args: [--profile, .pre-commit-configs/.prospector.yml]

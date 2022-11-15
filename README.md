@@ -38,7 +38,7 @@ realisation).
         admin_chat_id = 12345       
         channel_id = -1234567
 
-+ On first start you must enter phone-number and password from telegram-account. Telethon requried.
++ On first start you must enter phone-number and password from telegram-account. Telethon required.
 ## Some bot commands
 
     /add - Add channel
@@ -50,29 +50,55 @@ realisation).
     /rules - List of AdBlock rules
 
 
-# TODO
-1. Calculate statistics for originality of content produced
-   1. find real origins of forwarded forwarded...
-   2. add counters to them 
-2. Deduplication of subscriptions
-3. Add liked memes from profunctor
-4. Add reactions + spam report to be automatically used as a per-person feedback loop
-   1. Add recommender system
-5. Keep this bot hosted on a server
-   1. database will contain user's preferences, subscription lists
-   2. bot which everyone can configure for personal needs and personal feed
-   3. recsys trained on all users
-      1. Post reactions as features for recommender
-6. Add more complex spam detector
-   1. count vectorizer to start with?
-   2. Average URL Number per Message
-   3. Unique URL Number
-   4. domain
-   5. add feedback loop from my reactions in the chat (and then delete the posts)
-7. Add dict with channel names from ids?
+# TODOs with descending priorities
+1. Per-channel content recommender
+   1. What content
+      1. Content from subscriptions
+      2. New content non-following channels
+      3. Channel recommendation itself (not content from it)? [Vlad](https://github.com/sawyre)'s idea). PageRank?
+   2. Features/approaches
+      1. RL for recommender
+      2. content type (polls, gifs, etc)
+2. Spam detection
+   1. Common rules (high precision, low recall) - toggle to use
+   2. Per-channel rules (content- and userspecific) - toggle to use
+      1. fix Russian spam-filter bypass #промо - generate automatically combinations
+      2. ...читать продолжение… - generate automatically combinations
+      3. user is able to add/delete this him/herself
+      4. should be extendable to rexeps
+   3. Per-channel ML trained on special spam-related reactions (this may be incorporated into recommender itself)
+      1. count vectorizer to start with?
+      2. Average URL Number per Message
+      3. Unique URL Number
+      4. domain
+      5. add feedback loop from reactions in the chat (and some time after (from user's acceptance) delete the posts 
+      marked as spam\uninteresting)
+3. Examples of usage
+   1. Gif with already working bot overview
+      1. Scenario:
+         1. user joins
+         2. user creates a public channel
+         3. user adds the bot to a newly created channel
+         4. user goes to bot and adds a couple of subscriptions to a source channel
+         5. bot sends content to the user's channel
+         6. user checks new content and reacts
+   2. Gif with using the commands
+4. Deployment
+   1. switch to a database
+   2. database will contain user's preferences, subscription lists
+   3. dev env will have only developers' channels to be checked for some time
+5. Statistics 
+   1. originality of content produced
+      1. find real origins of forwarded forwarded...
+      2. add counters to them 
+   2. Number of src channels processed
+   3. Posts forwarded 
+   4. Timing, delays, potential scaling, bottlenecks
+6. Add liked memes from profunctor
+7. For ML-based spam detection and content recommendations: only admin's reactions or the whole channel's reactions
+are used? user's decision per channel?
 8. Update filtering rules to a list (mb dict with some level of severity)
-9. Check forwarding from channels without subscription
-10. deduplicate if the post covers the same news or the same model (within some period of time). 
+9. deduplicate if the post covers the same news or the same model (within some period of time). 
 Different opinions from different channels might be interesting but very similar content 
 about the same news is definitely not
     1. text similarity?
@@ -84,24 +110,45 @@ about the same news is definitely not
        1. First served policy
        2. Somehow aggregate opinions from different channels via updating the first post on this topic
        3. Take better?
-11. Channel recommendation [Vlad](https://github.com/sawyre)'s idea). PageRank?
-12. RL for recommender?
-13. fix Russian spam-filter bypass #промо 
-14. If server is not available, close the session
-15. Add static code analysis
-16. One user can make several bots with different topics and each will be covered with personal recommendations and great 
-spam-checker
-17. If you are going to read several messages and the last one is a part of a group, the group has to be finished
-18. In debug mode, show what kind of post was forwarded (what media inside)
-19. Do not subscribe to what you read
-20. make buttons from common commands
-21. resolve dst_ch reading another dst_ch. infinite forwarding btw dst channels
-22. trace channel name changes
-23. clean `https://t.me/profunctor_io`
-24. add deletion from channel
-25. create a func for deleting messages via bot
-26. send some filtered digest to user like "5 msg from this channel were filtered due to this and this filter. you can
+10. If server is not available, close the session
+11. Bot functionality
+    1. Forward to private channels
+    2. add deletion from channel
+    3. make buttons from common commands
+    4. Automatically send each user a notification with details when a new version of the code is merged to master
+    5. make difference between help description and actual long explanation/return from the command
+    6. when you start resolving the list of commands after the bot was off for some time, the commands are read backwards
+for some reason
+    7. resolve dst_ch reading another dst_ch. infinite forwarding btw dst channels
+    8. /add_to_channel to be used from the channel itself with only one argument of src_ch. Make admin check
+12. If you are going to read several messages and the last one is a part of a group, the group has to be finished
+13. In debug mode, show what kind of post was forwarded (what media inside)
+14. trace channel name changes (is it possible? what API says)
+15. clean `https://t.me/profunctor_io`
+16. create a func for deleting messages via bot
+17. send some filtered digest to user like "5 msg from this channel were filtered due to this and this filter. you can
 still find this content via this link"
+18. comments to the forwarded forwarded messages are sent after the actual message
+19. when forwarding, show the time of the original post (using API or just adding "orig time: ..." to the top)
+
+# Static code analysis
+In this repo I use [pre-commit framework](https://pre-commit.com/) to organise code analysis. This framework does all 
+the arrangements with hooks for you having the .pre-commit-config.yaml file. This file is configured once and stored 
+in the repository as a usual file. Every change will be automatically taken into account.
+
+Only two simple manual steps are required:
+1. Install the package via `pip install pre-commit` or may be just included to the requirements (done)
+2. Initialize the framework `pre-commit install`. May be added to the setup script (not done)
+
+If you want to check the hook without an event, run `pre-commit run --all-files`.
+
+## Configuration files
+Files (located in the root of the repo) involved into code analysis:
+* .pre-commit-config.yaml - pre-commit hook description aka 'what to do when commited'
+* .prospector.yml - Prospector configuration
+* .pylintrc - detailed Pylint configuration used in Prospector
+* .bandit.yml - detailed Bandit configuration used in Prospector
+These files may be easily copied to another repository and configured based on the new requirements.
 
 # Developing notes
 1. It was a news for me that programming a telegram bot is not the only thing you can program for Telegram. Telegram

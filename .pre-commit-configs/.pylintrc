@@ -1,0 +1,15 @@
+[FORMAT]
+
+# Good variable names which should always be accepted, separated by a comma
+good-names=i,j,k,x,y,df,c,X,f,ls
+
+[MESSAGES CONTROL]
+
+disable=
+    too-few-public-methods,
+    missing-docstring,
+    star-args,
+    consider-using-f-string,
+    import-error,
+    missing-function-docstring,
+    logging-fstring-interpolation

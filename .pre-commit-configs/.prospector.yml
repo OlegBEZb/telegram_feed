@@ -1,0 +1,85 @@
+# grouped, pylint, json, yaml, xunit, text
+output-format: pylint
+
+strictness: medium  # ‘verylow’, ‘low’, ‘medium’ (the default), ‘high’ and ‘veryhigh‘
+#doc-warnings: true
+#test-warnings: false
+max-line-length: 180
+
+
+# works since 1.8.0rc1
+ignore-paths:
+  - images/
+  - src/debug_playground.py
+
+
+# Pylint is the most comprehensive static analysis tool for Python. It is extremely thorough and is the source of
+# most messages that prospector outputs.
+pylint:
+    run: true
+    options:
+      config_file: .pre-commit-configs/.pylintrc
+
+# Dodgy is a very simple tool designed to find ‘dodgy’ things which should not be in a public project, such as secret
+# keys, passwords, AWS tokens or source control diffs.
+dodgy:
+    run: true
+
+# McCabe or cyclomatic complexity is a measurement of how many paths there are in a given function or method. It
+# measures how complicated your functions are, and warns if they reach a certain threshold. Methods that are too
+# complex are prone to logic errors, and should be refactored to a series of smaller methods.
+mccabe:
+    run: true
+
+# Pyflakes analyzes programs and detects various errors. It is simpler and faster than pylint, but also not as thorough.
+pyflakes:
+    run: true
+
+# pycodestyle is a simple tool to warn about violations of the PEP8 style guide. It produces messages for any
+# divergence from the style guide.
+pycodestyle:
+    run: true
+
+# Pydocstyle is a simple tool to warn about violations of the PEP257 Docstring Conventions. It produces messages for
+# any divergence from the style guide.
+pydocstyle:
+    run: false
+
+############################## DON'T WORK ##############################
+
+# Doesn't actually work
+# may be launched with bandit src/main.py -c .pre-commit-configs/.bandit.yml
+bandit:
+    run: false
+#    options:
+#      config: .pre-commit-configs/.bandit.yml
+#  options:  # doesn't work so far
+#    skips: B101
+
+# Doesn't actually work
+# Pyroma is a tool to check your setup.py to ensure it is following best practices of the Python packaging ecosystem.
+# It will warn you if you are missing any package metadata which would improve the quality of your package. This is
+# recommended if you intend to publish your code on PyPI.
+pyroma:
+    run: false
+
+# Doesn't actually work
+# Vulture finds unused classes, functions and variables in your code. This could be useful if your project is an
+# application rather than a library, however, if you do a lot of dynamic access or metaprogramming, Vulture will likely
+# warn about unused code that is in fact used.
+vulture:
+    run: false
+
+# Doesn't actually work
+# Frosted is a fork of pyflakes which was created with the intention of taking over from and extending pyflakes as
+# development had slowed. Since Prospector was originally created, pyflakes development has started up again and
+# frosted has stagnated, so it has been demoted to be an optional extra.
+frosted:
+    run: false
+
+# Doesn't actually work
+# Mypy is an experimental optional static type checker for Python that aims to combine the benefits of dynamic
+# (or “duck”) typing and static typing. Mypy combines the expressive power and convenience of Python with a powerful
+# type system and compile-time type checking.
+mypy:
+    run: false
