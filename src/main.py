@@ -14,10 +14,15 @@ from telethon.tl.patched import Message
 from telethon.tl.functions.messages import GetPeerDialogsRequest, MarkDialogUnreadRequest
 from telethon.tl.functions.messages import ForwardMessagesRequest
 
-from src.utils import get_feeds, get_history, start_client, get_last_channel_ids, update_last_channel_ids
+from src.utils import get_history, start_client
+from src.database_utils import get_last_channel_ids, update_last_channel_ids, get_feeds
 
 from src import config
 from src.filtering.filter import Filter
+
+
+MAIN_LOOP_DELAY_SEC_DEBUG = 10
+MAIN_LOOP_DELAY_SEC_INFO = 600
 
 
 # from src.bot.channel_controller_bot import get_feeds, get_users, save_users, save_feeds
@@ -119,6 +124,7 @@ def get_last_msg_id(client: TelegramClient, channel_id):
     return messages.messages[0].id
 
 
+# TODO: simplify function
 def main(client: TelegramClient):
     last_channel_ids = get_last_channel_ids()
     feeds = get_feeds()  # which dst channel reads what source channels
@@ -189,8 +195,9 @@ def main(client: TelegramClient):
 
                 for dst_ch in dst_channels:
                     # TODO: perform history check later wrt the dst channel and it's rb list
-                    filter = Filter(rule_base_check=True, history_check=True, client=client, dst_channel=dst_ch)
-                    messages_checked_list = filter.filter_messages(msg_list)
+                    filter_component = Filter(rule_base_check=True, history_check=True, client=client,
+                                              dst_channel=dst_ch, use_common_rules=True)
+                    messages_checked_list = filter_component.filter_messages(msg_list)
                     logger.debug(f'Before filtering: {len(msg_list)}. After {len(messages_checked_list)}')
 
                     # forward_msgs(client=client, peer=channel_id, msg_list=messages_checked_list,
@@ -207,7 +214,7 @@ def main(client: TelegramClient):
 
                 logger.debug("\n")
 
-        except Exception as e:
+        except Exception:
             logger.error(f"Channel {channel_id} was not processed", exc_info=True)
 
 
@@ -241,16 +248,15 @@ if __name__ == '__main__':
         try:
             main(client)
             if log_level == 'DEBUG':
-                wait = 10
+                wait = MAIN_LOOP_DELAY_SEC_DEBUG
             else:
-                wait = 600
+                wait = MAIN_LOOP_DELAY_SEC_DEBUG
             # print("Waiting for", wait)
             time.sleep(wait)
 
         except KeyboardInterrupt:
             client.disconnect()
             exit()
-        except Exception as e:
-            # print(str(e))
+        except:
             logger.error("While main loop failed", exc_info=True)
             time.sleep(30)

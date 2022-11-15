@@ -1,66 +1,30 @@
 import json
 import os
 import time
-from collections import defaultdict
 from copy import deepcopy
+from pathlib import Path
 
 from telethon import TelegramClient, types, utils as tutils
 from telethon.tl.functions.channels import GetFullChannelRequest
 from telethon.tl.functions.messages import GetHistoryRequest, CheckChatInviteRequest, ImportChatInviteRequest
-
 from telethon.tl.patched import Message
-from telethon.tl.types import PeerChannel, MessageFwdHeader
-
-import logging
-logger = logging.getLogger(__name__)
+from telethon.tl.types import MessageFwdHeader
 
 from src import config
 
-from pathlib import Path
-
-
-USERS_FILEPATH = "./data/users.json"
-FEEDS_FILEPATH = "./data/feeds.json"
-LAST_CHANNEL_MESSAGE_ID_FILEPATH = './data/last_channel_message_id.json'
+import logging
+logger = logging.getLogger(__name__)
 
 
 def get_project_root() -> Path:
     return Path(__file__).parent.parent
 
 
-def OpenJson(name):
-    import os
+def open_json(name):
     root = get_project_root()
     with open(os.path.join(root, f"src/data/{name}.json"), 'r', encoding='utf-8-sig') as f:
         data = json.load(f)
     return data
-
-
-def SaveJson(name, data):
-    with open('data/%s.json' % name, 'w') as f:
-        json.dump(data, f)
-
-
-def get_last_channel_ids():
-    if os.path.exists(LAST_CHANNEL_MESSAGE_ID_FILEPATH):
-        with open(LAST_CHANNEL_MESSAGE_ID_FILEPATH, 'r', encoding='utf-8-sig') as f:
-            data = defaultdict(lambda: 0, json.load(f))
-    else:
-        data = defaultdict(lambda: 0)
-    return data
-
-
-def save_last_channel_ids(channels: dict):
-    with open(LAST_CHANNEL_MESSAGE_ID_FILEPATH, 'w') as f:
-        json.dump(channels, f)
-    logger.debug(f'saved updated channel ids')
-
-
-def update_last_channel_ids(key, last_msg_id):
-    channels = get_last_channel_ids()
-    channels[key] = last_msg_id
-    save_last_channel_ids(channels)
-    return channels
 
 
 def check_channel_correctness(channel: str) -> str:
@@ -75,7 +39,7 @@ def check_channel_correctness(channel: str) -> str:
         channel = channel.replace("t.me/", "https://t.me/")
     if channel.find("https://t.me/") == -1:
         # return "error"
-        raise
+        raise ValueError(f"Channel of inappropriate format: {channel}")
     else:
         return channel
 
@@ -87,9 +51,11 @@ def get_reactions(msg: Message):
         for reaction in reactions:
             d[reaction.reaction] = reaction.count
         return d
+    return None
 
 
 async def get_channel_name(client: TelegramClient, entity):
+    # https://stackoverflow.com/questions/61456565/how-to-get-the-chat-or-group-name-of-incoming-telegram-message-using-telethon
     """
 
     :param client:
@@ -210,7 +176,7 @@ async def get_channel_id(client: TelegramClient, entity):
     :return:
     """
     entity = await client.get_input_entity(entity)
-    return int('-100'+str(entity.channel_id))
+    return int('-100' + str(entity.channel_id))
     # print(await client.get_peer_id('me'))  # your id
 
 
@@ -317,83 +283,21 @@ def Subs2PrivateChat(client: TelegramClient, req):
 
 
 def start_client(client_name='default_client', **start_kwargs):
-    isNotConnected = True
+    is_not_connected = True
     connection_attempts = 1
-    while isNotConnected:
+    while is_not_connected:
         try:
             logger.debug(f"Connection attempt: {connection_attempts}")
             client = TelegramClient(client_name, config.api_id, config.api_hash)
             client.start(**start_kwargs)
             logger.debug('TelegramClient is started\n')
-            isNotConnected = False
-        except Exception as e:
+            is_not_connected = False
+        except:
             connection_attempts += 1
-            logger.error(str(e))
+            logger.error(f"Was not able to start a client '{client_name}'", exc_info=True)
             time.sleep(30)
 
     return client
-
-
-def get_users():
-    if os.path.exists(USERS_FILEPATH):
-        with open(USERS_FILEPATH, 'r', encoding='utf-8-sig') as f:
-            data = defaultdict(list, json.load(f))
-    else:
-        data = defaultdict(list)
-    return data
-
-
-def update_user(users_dict, user, channel_id=None, add_not_remove=True):
-    # rn the structure of users is "user_id": [int(channel_id), int(channel_id)]
-    if isinstance(user, int):
-        user = str(user)
-    if not str(channel_id).startswith('-100'):
-        raise "Channel has to start from '-100'"
-
-    if add_not_remove:
-        if channel_id in users_dict[user]:
-            logger.warning(f"Channel {channel_id} is already in subs list of {user} user")
-        else:
-            users_dict[user].append(channel_id)
-            logger.debug(f"User {user} added channel {channel_id} to {users_dict[user]}")
-    else:
-        users_dict[user] = [c for c in users_dict[user] if c != channel_id]
-        logger.debug(f"User {user} removed channel {channel_id} from {users_dict[user]}")
-    return users_dict
-
-
-def save_users(data):
-    with open(USERS_FILEPATH, 'w') as f:
-        logger.debug(f'updated users\n{data}')
-        json.dump(data, f)
-
-
-def get_feeds():
-    if os.path.exists(FEEDS_FILEPATH):
-        with open(FEEDS_FILEPATH, 'r', encoding='utf-8-sig') as f:
-            data = defaultdict(list, json.load(f))
-    else:
-        data = defaultdict(list)
-    return data
-
-
-def update_feed(feeds, dst_ch, src_ch, add_not_remove=True):
-    # just in case once again
-    src_ch, dst_ch = check_channel_correctness(src_ch), check_channel_correctness(dst_ch)
-    if add_not_remove:
-        if src_ch in feeds[dst_ch]:
-            logger.warning(f"Channel {src_ch} is already in subs list of {dst_ch} channel")
-        else:
-            feeds[dst_ch].append(src_ch)
-    else:
-        feeds[dst_ch] = [c for c in feeds[dst_ch] if c != src_ch]
-    return feeds
-
-
-def save_feeds(data):
-    with open(FEEDS_FILEPATH, 'w') as f:
-        json.dump(data, f)
-    logger.debug(f'updated channels\n{data}')
 
 
 def list_to_str_newline(ls):
@@ -407,3 +311,5 @@ async def get_user_display_name(client: TelegramClient, entity):
     elif isinstance(entity, types.Chat):
         # TODO: fix overhead
         return get_channel_name(entity)
+    else:
+        raise ValueError(f"entity of type {type(entity)} is not processed for extracting display_name")

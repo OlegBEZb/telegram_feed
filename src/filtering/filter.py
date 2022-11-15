@@ -1,10 +1,12 @@
-from typing import List
-from telethon.tl.patched import Message
-from telethon.tl.types import MessageMediaDocument, MessageMediaPhoto, MessageMediaWebPage, MessageMediaPoll
-
 import asyncio
 
-from src.utils import logger, OpenJson, get_history, get_source_channel_name_for_message
+from typing import List
+from telethon.tl.patched import Message
+from telethon.sync import TelegramClient
+from telethon.tl.types import MessageMediaDocument, MessageMediaPhoto, MessageMediaWebPage, MessageMediaPoll
+
+from src.utils import open_json, get_history, get_source_channel_name_for_message
+from src.database_utils import get_rb_filters
 from src import config
 
 import logging
@@ -65,7 +67,7 @@ def message_is_same(msg1: Message, msg2: Message):
     return is_duplicated
 
 
-def message_is_duplicated(msg: Message, history, client):
+def message_is_duplicated(msg: Message, history, client: TelegramClient):
     for history_msg in history.messages:
         if message_is_same(history_msg, msg):
             # the rest of the function is for debugging purposes
@@ -129,7 +131,7 @@ def open_rules_file():
     Opens file with rules for advertisements and returns a list with rules to apply
     :return:
     """
-    ads = OpenJson(name="ads")
+    ads = open_json(name="ads")
     ads_list = list()
     for ad in ads:
         ads_list.append(ad)  # each term may have it's priority. Now it's 0 as a placeholder
@@ -166,27 +168,37 @@ def check_messages_with_rules(msg_list: List[Message]) -> List[Message]:
             else:
                 logger.debug(f'removed message from spam group {spam_group_id}. Spam message\n{spam_message}')
                 spam_message_ids.append(msg.id)
-    logger.debug('spam_message_ids', spam_message_ids)
+    logger.debug(f'spam_message_ids: {spam_message_ids}')
     return messages_checked_list
 
 
 class Filter:
-    def __init__(self, rule_base_check=True, history_check=True, client=None, dst_channel=None):
+    def __init__(self, rule_base_check=True, history_check=True, client: TelegramClient=None, dst_channel=None,
+                 use_common_rules=True):
         self.rule_base_check = rule_base_check
+        self.use_common_rules = use_common_rules
         self.history_check = history_check
         self.client = client
         self.dst_channel = dst_channel
 
         if self.rule_base_check:
-            self.checkrules_list = open_rules_file()  # TODO: add path
-            if self.checkrules_list is None:
+            self.checkrules_list = self._get_rb_list()
+            if self.checkrules_list == []:
                 logger.debug("There are no advertising\\filtering rules to check")
-                raise
 
         if self.history_check and (self.client is None):
             raise ValueError("If history check is performed, 'client' parameter has to be provided")
         if self.history_check and (self.dst_channel is None):
             raise ValueError("If history check is performed, 'dst_channel' parameter has to be provided")
+
+    def _get_rb_list(self, ) -> List:
+        all_rules = get_rb_filters()
+        rules = []
+        if self.use_common_rules:
+            rules += all_rules['_common_rb_list']
+        if self.dst_channel is not None:
+            rules += all_rules[self.dst_channel]  # TODO: check flatness
+        return rules
 
     def filter_messages(self, msg_list: List[Message]) -> List[Message]:
         """
@@ -196,7 +208,7 @@ class Filter:
         :return:
         """
         # TODO: check order twice
-        if self.rule_base_check:
+        if self.rule_base_check and self.checkrules_list != []:
             logger.log(5, f"Performing a rule-based filtering for {self.dst_channel}")
             msg_list = self._filter(msg_list, filter_func=message_is_filtered_by_rules, rules_list=self.checkrules_list)
             if len(msg_list) == 0:
@@ -248,22 +260,31 @@ class Filter:
 
 
 if __name__ == '__main__':
+    logging.basicConfig(
+        format='%(asctime)s %(module)s %(levelname)s: %(message)s',
+        level=logging.INFO,
+        datefmt='%a %d.%m.%Y %H:%M:%S',
+        force=True)
+    logging.getLogger(__name__).setLevel('DEBUG')
+
     from src.utils import start_client
     from telethon.tl.functions.messages import GetHistoryRequest
 
     # https://arabic-telethon.readthedocs.io/en/stable/extra/advanced-usage/mastering-telethon.html#asyncio-madness
     import telethon.sync
-    client = start_client('filter_client')
+    client = start_client('telefeed_client')
 
-    my_channel_history = get_history(client=client, peer=config.MyChannel, limit=50)
-    filtering_component = Filter(rule_base_check=True, history_check=True, client=client)
+    my_channel_history = get_history(client=client, peer=config.MyChannel, limit=150)
+    filtering_component = Filter(rule_base_check=True, history_check=True, client=client,
+                                 dst_channel='https://t.me/DeepStuffChannel'
+                                 )
 
     to_filter_messages = client(GetHistoryRequest(
-        peer='https://t.me/cryptovalerii',
+        peer='https://t.me/DeepFaker',
         offset_id=0,
         offset_date=0,
         add_offset=0,
-        limit=1,
+        limit=20,
         max_id=0,
         min_id=0,
         hash=0

@@ -5,7 +5,8 @@ import config
 
 import logging
 
-from src.utils import get_user_display_name
+from utils import check_channel_correctness, list_to_str_newline, get_channel_link, get_user_display_name
+from src.database_utils import get_users, update_user, save_users, get_feeds, update_feed, save_feeds
 
 logging.basicConfig(
     # filename="MainClient.log",
@@ -19,9 +20,6 @@ logger.setLevel('DEBUG')
 logging.getLogger('telethon').setLevel(logging.WARNING)
 
 
-from utils import check_channel_correctness, get_users, save_users, get_feeds, \
-    save_feeds, update_user, update_feed, list_to_str_newline, get_channel_link
-
 COMMANDS = {  # command description used in the "help" command
     'start'         : ("Welcome to the 'telefeed' project. You have to add this bot as an administrator to your "
                        "**public** channel. If you don't have any, create one. For each created channel you will be able "
@@ -30,12 +28,15 @@ COMMANDS = {  # command description used in the "help" command
                        "personal information will be private for everyone including admins and developers"),
 
     'help'          : ('Gives you information about the available commands.'
-             "\nYour feedback is appreciated.\nPlease, contact t.me/OlegBEZb regarding any issues"),
+                       "\nYour feedback is appreciated.\nPlease, contact t.me/OlegBEZb regarding any issues"),
 
     'about'         : ("The purpose of this bot is to aggregate all your channels into one feed, as well as filter ads "
                        "and duplicated content."
                        "For better recommendations, you can allow reactions on your public channel and use them for the "
-                       "content published. The most important reactions for us are '👍' and '👎'. For spam use '💩' and '🤬'."
+                       "content published. You can use any reaction which describes your (surprisingly) reaction the "
+                       "best but the most important reactions for our recommender system are '👍' and '👎' - use them "
+                       "if you like or dislike the content. To indicate spam, use '💩' and '🤬'. This will be used for further "
+                       "filtering."
                        "\n**Note**: your private information is not visible in any way for "
                        "other users but still visible for the bot creator for debugging purposes. In future, this "
                        "personal information will be private for everyone including admins and developers"),
@@ -113,9 +114,9 @@ async def command_help(event):
         return
 
     help_text = "The following commands are available: \n"
-    for key in COMMANDS:  # generate help text out of the commands dictionary defined at the top
+    for key, comment in COMMANDS.items():  # generate help text out of the commands dictionary defined at the top
         help_text += "/" + key + ": "
-        help_text += COMMANDS[key] + "\n"
+        help_text += comment + "\n"
     await bot.send_message(sender_id, help_text)
     logger.debug(f"Sent help to {sender_id}")
 
@@ -155,22 +156,28 @@ async def command_channel_info(event):
         await event.reply("Communication with the bot has to be performed only in direct messages, not public channels")
         return
     message = event.message
-    _, dst_ch = message.text.split()
-    dst_ch = check_channel_correctness(dst_ch)
 
+    try:
+        _, dst_ch = message.text.split()
+        dst_ch = check_channel_correctness(dst_ch)
+    except:
+        await event.reply(f"Was not able to process the argument. Check help once again:\n{COMMANDS['channel_info']}")
+        logger.error(f"User {sender_id} failed in command_channel_info", exc_info=True)
+        return
+
+    # dst_ch_id = get_channel_id(bot, dst_ch)
     entity = await bot.get_input_entity(dst_ch)
     dst_ch_id = tutils.get_peer_id(entity)
-    # dst_ch_id = get_channel_id(bot, dst_ch)
 
     users = get_users()
     if dst_ch_id not in users[str(sender_id)]:
-        await event.reply(f"You are not allowed to perform this action")
+        await event.reply("You are not allowed to perform this action")
         return
 
     feeds = get_feeds()
     reading_list = feeds[dst_ch]
     if not reading_list:
-        await event.reply(f"Your reading list is empty")
+        await event.reply("Your reading list is empty")
     else:
         await event.reply(f"Your reading list of {len(reading_list)} item(s) (sorted chronologically):\n{list_to_str_newline(reading_list)}")
 
@@ -184,7 +191,7 @@ async def command_my_channels(event):
     users = get_users()
     users_channels = users[str(sender_id)]
     if len(users_channels) == 0:
-        await event.reply(f"You haven't added the bot to any of your channels yet")
+        await event.reply("You haven't added the bot to any of your channels yet")
     else:
         users_channels_links = [await get_channel_link(bot, ch) for ch in users_channels]
         await event.reply(f"Your channels (sorted chronologically):\n{list_to_str_newline(users_channels_links)}")
@@ -209,14 +216,14 @@ async def command_add_to_channel(event):
 
         users = get_users()
         if dst_ch_id not in users[str(sender_id)]:
-            await event.reply(f"You are not allowed to perform this action. Try to add the bot to your channel as admin.")
+            await event.reply("You are not allowed to perform this action. Try to add the bot to your channel as admin.")
             return
 
         feeds = get_feeds()
 
         if src_ch in feeds:
             # TODO: think about potential solution
-            await event.reply(f"You can not add somebody's target channel as your source because of potential infinite loops")
+            await event.reply("You can not add somebody's target channel as your source because of potential infinite loops")
             return
 
         update_feed(feeds, dst_ch, src_ch, add_not_remove=True)
@@ -224,9 +231,10 @@ async def command_add_to_channel(event):
         # TODO: add notification that the channel was already there
         await event.reply(f"Added! Now your reading list is the following:\n{list_to_str_newline(feeds[dst_ch])}")
     except:
-        await event.reply(f"Was not able to add channel. Check if your destination channel is public and the bot is added as admin")
+        await event.reply("Was not able to add channel. Check if your destination channel is public and the bot is added as admin")
         logger.error(f"User {sender_id} failed to add channel {src_ch} to {dst_ch}", exc_info=True)
         return
+
 
 @bot.on(events.NewMessage(pattern='/users'))
 async def admin_command_users(event):
@@ -234,11 +242,11 @@ async def admin_command_users(event):
         return
     sender_id = event.chat_id
     if int(sender_id) != config.my_id:
-        await event.reply(f"You are not allowed to perform this action")
+        await event.reply("You are not allowed to perform this action")
         return
     users = get_users()
     if len(users) == 0:
-        await event.reply(f"You don't have any yet")
+        await event.reply("You don't have any yet")
     else:
         # TODO: add the number of channels per user
         user_names = [await get_user_display_name(bot, int(u)) for u in users]
@@ -254,7 +262,7 @@ async def echo_all(event):
     if cmd[0] == '/':
         cmd = cmd[1:]
     if cmd not in COMMANDS:
-        await event.reply(f"This is an unrecognized command. Use /help to list all available commands")
+        await event.reply("This is an unrecognized command. Use /help to list all available commands")
 
 
 bot.run_until_disconnected()
