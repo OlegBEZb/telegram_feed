@@ -169,7 +169,7 @@ def main(client: TelegramClient):
             # message id of 0, the batch will be large. But after disconnections this limit of 100 may be insufficient
             # and there will be gaps
             messages = get_history(client=client, min_id=last_channel_ids[channel_id], peer=channel_id,
-                                   limit=50)
+                                   limit=30)
             if len(messages.messages) > 0:
                 do_process_channel = True
             else:
@@ -239,10 +239,10 @@ if __name__ == '__main__':
     #     logging.getLogger('telethon').setLevel(logging.ERROR)
     logging.getLogger('telethon').setLevel(logging.ERROR)
 
-    logger.info("Start")
     client = start_client('telefeed_client',
                           # bot_token=config.bot_token
                           )
+    logger.info('telefeed_client started')
 
     while True:
         try:

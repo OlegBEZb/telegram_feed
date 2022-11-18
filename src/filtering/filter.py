@@ -216,7 +216,7 @@ class Filter:
         if self.history_check:
             logger.debug(f"Performing a history filtering for {self.dst_channel}")
             # have to be more or less global and extended after every message forwarded to my channel
-            dst_channel_history = get_history(client=self.client, peer=config.MyChannel, limit=100)
+            dst_channel_history = get_history(client=self.client, peer=self.dst_channel, limit=100)
             msg_list = self._filter(msg_list, filter_func=message_is_duplicated,
                                     history=dst_channel_history, client=self.client)
         return msg_list

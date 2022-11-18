@@ -53,15 +53,15 @@ realisation).
 # TODOs with descending priorities
 1. Per-channel content recommender
    1. What content
-      1. Content from subscriptions
-      2. New content non-following channels
-      3. Channel recommendation itself (not content from it)? [Vlad](https://github.com/sawyre)'s idea). PageRank?
+      1. Just started. Do you like to follow [defaults]?
+      2. Content from subscriptions
+         1. when added a subscription: would you also like to subscribe to [channel similar to the added]
+      3. New content non-following channels
+      4. Channel recommendation itself (not content from it)? [Vlad](https://github.com/sawyre)'s idea). PageRank?
    2. Features/approaches
       1. RL for recommender
       2. content type (polls, gifs, etc)
 2. Spam detection
-   1. Common rules (high precision, low recall) - toggle to use
-   2. Per-channel rules (content- and userspecific) - toggle to use
       1. fix Russian spam-filter bypass #промо - generate automatically combinations
       2. ...читать продолжение… - generate automatically combinations
       3. user is able to add/delete this him/herself
@@ -83,44 +83,46 @@ realisation).
          5. bot sends content to the user's channel
          6. user checks new content and reacts
    2. Gif with using the commands
-4. Deployment
-   1. switch to a database
-   2. database will contain user's preferences, subscription lists
-   3. dev env will have only developers' channels to be checked for some time
-5. Statistics 
-   1. originality of content produced
-      1. find real origins of forwarded forwarded...
-      2. add counters to them 
-   2. Number of src channels processed
-   3. Posts forwarded 
-   4. Timing, delays, potential scaling, bottlenecks
-6. Add liked memes from profunctor
-7. For ML-based spam detection and content recommendations: only admin's reactions or the whole channel's reactions
-are used? user's decision per channel?
-8. Update filtering rules to a list (mb dict with some level of severity)
-9. deduplicate if the post covers the same news or the same model (within some period of time). 
-Different opinions from different channels might be interesting but very similar content 
-about the same news is definitely not
-    1. text similarity?
-    2. same references used (links, channels, named entities)
-       1. if channel B refers to channel A in their post, the channel's B note may be added to the
-       channel's A repost at the end as an opinion
-    3. time of the post is more or less similar (within 24 hour or sth)
-    4. What to do with that?
-       1. First served policy
-       2. Somehow aggregate opinions from different channels via updating the first post on this topic
-       3. Take better?
-10. If server is not available, close the session
-11. Bot functionality
+4. Bot functionality
     1. Forward to private channels
     2. add deletion from channel
-    3. make buttons from common commands
+    3. add dynamic fetching of the handlers
     4. Automatically send each user a notification with details when a new version of the code is merged to master
     5. make difference between help description and actual long explanation/return from the command
     6. when you start resolving the list of commands after the bot was off for some time, the commands are read backwards
 for some reason
     7. resolve dst_ch reading another dst_ch. infinite forwarding btw dst channels
     8. /add_to_channel to be used from the channel itself with only one argument of src_ch. Make admin check
+    9. send /help without a link to me
+5. Deployment
+   1. switch to a database
+   2. database will contain user's preferences, subscription lists
+   3. dev env will have only developers' channels to be checked for some time
+6. Statistics 
+   1. originality of content produced
+      1. find real origins of forwarded forwarded...
+      2. add counters to them 
+   2. Number of src channels processed
+   3. Posts forwarded 
+   4. Timing, delays, potential scaling, bottlenecks
+7. Add liked memes from profunctor
+8. For ML-based spam detection and content recommendations: only admin's reactions or the whole channel's reactions
+are used? user's decision per channel?
+9. Update filtering rules to a list (mb dict with some level of severity)
+10. deduplicate if the post covers the same news or the same model (within some period of time). 
+Different opinions from different channels might be interesting but very similar content 
+about the same news is definitely not
+     1. text similarity?
+     2. same references used (links, channels, named entities)
+        1. if channel B refers to channel A in their post, the channel's B note may be added to the
+        channel's A repost at the end as an opinion
+     3. time of the post is more or less similar (within 24 hour or sth)
+     4. What to do with that?
+        1. First served policy
+        2. Somehow aggregate opinions from different channels via updating the first post on this topic
+        3. Take better?
+        4. use new telegram's feature called topics
+11. If server is not available, close the session
 12. If you are going to read several messages and the last one is a part of a group, the group has to be finished
 13. In debug mode, show what kind of post was forwarded (what media inside)
 14. trace channel name changes (is it possible? what API says)
@@ -128,7 +130,7 @@ for some reason
 16. create a func for deleting messages via bot
 17. send some filtered digest to user like "5 msg from this channel were filtered due to this and this filter. you can
 still find this content via this link"
-18. comments to the forwarded forwarded messages are sent after the actual message
+18. comments to the forwarded forwarded messages are sent after the actual message 
 19. when forwarding, show the time of the original post (using API or just adding "orig time: ..." to the top)
 
 # Static code analysis
@@ -173,3 +175,6 @@ I chose Telethon finally.
    4. [telepot](https://github.com/nickoala/telepot) - great but abandoned. I tried it but the library is very outdated 
 with respect to the API used and requires manual patches.
 ([example](https://stackoverflow.com/questions/66796130/python-bot-telepot-error-raise-keyerrorno-suggested-keys-s-in-s-strkey)).
+3. Great snippets were found in the following repos:
+   1. https://github.com/Lonami/TelethonianBotExt/blob/master/main.py
+   2. https://github.com/leomedo/pyLeader

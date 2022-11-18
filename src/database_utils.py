@@ -42,6 +42,7 @@ def get_users():
 
 
 def update_user(users_dict, user, channel_id=None, add_not_remove=True):
+    # TODO: add ceiling for the number of channels for the user
     # rn the structure of users is "user_id": [int(channel_id), int(channel_id)]
     if isinstance(user, int):
         user = str(user)
@@ -76,6 +77,7 @@ def get_feeds():
 
 
 def update_feed(feeds, dst_ch, src_ch, add_not_remove=True):
+    # TODO: add ceiling for the number of sources for the channel
     # just in case once again
     src_ch, dst_ch = check_channel_correctness(src_ch), check_channel_correctness(dst_ch)
     if add_not_remove:
