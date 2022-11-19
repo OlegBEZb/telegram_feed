@@ -48,7 +48,7 @@ pydocstyle:
 ############################## DON'T WORK ##############################
 
 # Doesn't actually work
-# may be launched with bandit src/main.py -c .pre-commit-configs/.bandit.yml
+# may be launched with bandit src/main_feed.py -c .pre-commit-configs/.bandit.yml
 bandit:
     run: false
 #    options:

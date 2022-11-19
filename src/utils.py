@@ -27,6 +27,7 @@ def open_json(name):
     return data
 
 
+# TODO: check that it's a link
 def check_channel_correctness(channel: str) -> str:
     """
     Checks the correctness of the channel name

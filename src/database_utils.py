@@ -2,7 +2,10 @@ import json
 import os
 from collections import defaultdict
 
-from src.utils import logger, check_channel_correctness, get_project_root
+from src.utils import check_channel_correctness, get_project_root
+
+import logging
+logger = logging.getLogger(__name__)
 
 USERS_FILEPATH = "./data/users.json"
 FEEDS_FILEPATH = "./data/feeds.json"

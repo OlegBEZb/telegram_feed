@@ -88,7 +88,6 @@ realisation).
     2. add deletion from channel
     3. add dynamic fetching of the handlers
     4. Automatically send each user a notification with details when a new version of the code is merged to master
-    5. make difference between help description and actual long explanation/return from the command
     6. when you start resolving the list of commands after the bot was off for some time, the commands are read backwards
 for some reason
     7. resolve dst_ch reading another dst_ch. infinite forwarding btw dst channels
@@ -102,9 +101,10 @@ for some reason
    1. originality of content produced
       1. find real origins of forwarded forwarded...
       2. add counters to them 
-   2. Number of src channels processed
+   2. Number of src channels processed "you received 10 msgs: 1 from this, 2 from that... N were filtered"
    3. Posts forwarded 
    4. Timing, delays, potential scaling, bottlenecks
+   5. "don't forget to react to the content"
 7. Add liked memes from profunctor
 8. For ML-based spam detection and content recommendations: only admin's reactions or the whole channel's reactions
 are used? user's decision per channel?

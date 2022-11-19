@@ -1,0 +1,4 @@
+---
+# https://bandit.readthedocs.io/en/latest/config.html
+# add severity as bandit is prone to false alarms
+skips: [B101, B301, B311, B403]

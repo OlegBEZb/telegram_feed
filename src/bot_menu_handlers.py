@@ -1,35 +1,16 @@
+import asyncio
+
 from telethon import events, types, Button
 
 from math import ceil
-from src import config, bot_client
-import re
-from database_utils import get_users
-from utils import get_channel_link
+from src import config, bot_client, NO_ARG_CLI_COMMANDS, CLI_COMMANDS
+from src.database_utils import get_users
+from src.bot_cli_utils import add_to_channel
 
-# command: [button_name, help_descr]
-COMMANDS = {  # command description used in the "help" command
-    '/start': ["start", "Registers the users and sends the greetings message"],
+from utils import get_channel_link, check_channel_correctness, get_user_display_name
 
-    '/help': ["textual help (CLI commands)",
-              'Gives you information about the available commands in text.'
-              "\nYour feedback is appreciated.\nPlease, contact t.me/OlegBEZb regarding any issues"],
-
-    '/about': ["about", "Sends the detailed description of the project and its usage"],
-
-    '/my_channels': ["show my channels",
-                     "This command shows all your channels which fetch updates from this bot"],
-
-    '/channel_info': ["show channel info",
-                      ("This command shows source channels for one of your channels. This command requires 1 argument "
-                       "from you: link to your channel."
-                       "\nExample: /channel_info t.me/your_destination_channel")],
-
-    '/add_to_channel': ["add source channel to my channel",
-                        ("This command adds a new source channel which content will be redirected to your channel."
-                         " This command requires 2 arguments from you: what channel to add and where to add. These two"
-                         " arguments are both links to telegram channels."
-                         "\nExample: /add_to_channel t.me/channel_of_interest t.me/your_destination_channel")],
-}
+import logging
+logger = logging.getLogger(__name__)
 
 
 def chunks(lst, n):
@@ -90,8 +71,8 @@ def paginate_help(event, page_number: int, button_text2data: dict, prefix: str, 
 #     await event.edit(buttons=buttons)
 
 
-@bot_client.on(events.NewMessage(pattern='/hlep'))
-async def command_help_test(event):
+@bot_client.on(events.NewMessage(pattern='/help$'))  # to escape help_text
+async def command_help(event):
     sender_id = event.chat_id
     if not event.is_private:  # replace with event.is_group\channel\private
         await event.reply(
@@ -102,16 +83,15 @@ async def command_help_test(event):
 
     # some commands may be called right from here. for others another sub call to get arguments is needed
     # may be addressed by level of depth
-    cmd_text2data = {btn_name: cmd for cmd, (btn_name, _) in COMMANDS.items()}
-    cmd_text2data["add source channel to my channel"] = 'button_' + cmd_text2data["add source channel to my channel"]
-    cmd_text2data['show channel info'] = 'button_' + cmd_text2data['show channel info']
+    cmd_text2data = {btn_name: (cmd if (cmd in NO_ARG_CLI_COMMANDS) else ('button_' + cmd)) for cmd, (btn_name, _) in
+                     CLI_COMMANDS.items()}
 
     buttons = paginate_help(event, 0, cmd_text2data, "helpme")
     await event.reply("Select one of the following", buttons=buttons)
     # await bot_client.send_message(sender_id, "Select one of the following", buttons=buttons)
+    logger.debug(f"Sent help to {await get_user_display_name(bot_client, int(sender_id))} ({sender_id})")
 
 
-# TODO: show channel links to the user. Pass these links to the /channel_info func as an argument
 @bot_client.on(events.CallbackQuery(data=b"button_/channel_info"))
 async def button_channel_info(event):
     sender_id = event.chat_id
@@ -129,4 +109,63 @@ async def button_channel_info(event):
     buttons = paginate_help(event, 0, cmd_text2data, "channel",
                             shape=(len(user_channels), 1)
                             )
-    await event.reply("Select one of the following", buttons=buttons)
+    await bot_client.send_message(sender_id, "Which channel info are you interested id?", buttons=buttons)
+
+
+@bot_client.on(events.CallbackQuery(data=b"button_/add_to_channel"))
+async def button_add_to_channel(event):
+    sender_id = event.chat_id
+    if not isinstance(event.chat, types.User):
+        await event.reply("Communication with the bot has to be performed only in direct messages, not public channels")
+        return
+
+    users = get_users()
+    user_channels = users[str(sender_id)]
+    if not user_channels:
+        await event.reply("You haven't added the bot to any of your channels yet")
+        return
+    user_channels_links = [await get_channel_link(bot_client, ch) for ch in user_channels]
+    cmd_text2data = {str(ch): f"button_button_/add_to_channel {ch}" for ch in user_channels_links}
+    buttons = paginate_help(event, 0, cmd_text2data, "channel",
+                            shape=(len(user_channels), 1)
+                            )
+    await bot_client.send_message(sender_id, "To which of your channels do you want to add a new source?", buttons=buttons)
+
+
+@bot_client.on(events.CallbackQuery(pattern=b"button_button_/add_to_channel"))
+async def button_button_add_to_channel(event):
+    sender_id = event.chat_id
+    if not isinstance(event.chat, types.User):
+        await event.reply("Communication with the bot has to be performed only in direct messages, not public channels")
+        return
+
+    if isinstance(event.original_update, types.UpdateBotCallbackQuery):  # or types.UpdateBot...
+        message = event.data.decode('utf-8')  # according to the doc
+    _, dst_ch = message.split()
+
+    async with bot_client.conversation(event.sender_id, timeout=60) as conv:
+        try:
+            await conv.send_message(
+                "Enter the link of the source channel to add",
+                buttons=Button.force_reply(),
+            )
+            msg = await conv.get_reply()
+            if not msg.text:
+                await event.reply("You can only set a text message!")
+                return
+        except asyncio.exceptions.TimeoutError:
+            await event.reply("Timeout for adding a source channel. Press the button once again")
+            logger.error(f"User ({sender_id}) faced a timeout in adding a source channel to add")
+            return
+
+    src_ch = msg.text
+    try:
+        src_ch = check_channel_correctness(src_ch)
+    except:
+        await event.reply(f"Was not able to process the argument. Start from pressing the button once again")
+        logger.error(f"User {await get_user_display_name(bot_client, int(sender_id))} ({sender_id}) failed in /add_to_channel", exc_info=True)
+        return
+
+    # /add_to_channel src_ch dst_ch
+    await add_to_channel(text=f"/add_to_channel {src_ch} {dst_ch}",
+                         sender_id=sender_id)
