@@ -153,6 +153,8 @@ async def button_button_add_to_channel(event):
             if not msg.text:
                 await event.reply("You can only set a text message!")
                 return
+
+            await conv.send_message('Your input is received', buttons=Button.clear())
         except asyncio.exceptions.TimeoutError:
             await event.reply("Timeout for adding a source channel. Press the button once again")
             logger.error(f"User ({sender_id}) faced a timeout in adding a source channel to add")

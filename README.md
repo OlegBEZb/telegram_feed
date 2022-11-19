@@ -132,6 +132,7 @@ about the same news is definitely not
 still find this content via this link"
 18. comments to the forwarded forwarded messages are sent after the actual message 
 19. when forwarding, show the time of the original post (using API or just adding "orig time: ..." to the top)
+20. Users list has to be updated according to the users who actually already stopped the bot
 
 # Static code analysis
 In this repo I use [pre-commit framework](https://pre-commit.com/) to organise code analysis. This framework does all 

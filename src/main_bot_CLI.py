@@ -7,7 +7,7 @@ import config
 
 import logging
 
-from src import bot_client, CLI_COMMANDS, ADMIN_COMMANDS
+from src import bot_client, CLI_COMMANDS, ADMIN_COMMANDS, START_MESSAGE, ABOUT_MESSAGE, FEEDBACK_MESSAGE
 from src.utils import check_channel_correctness, list_to_str_newline, get_channel_link, get_user_display_name
 from src.bot_cli_utils import add_to_channel
 from src.database_utils import get_users, update_user, save_users, get_feeds
@@ -22,46 +22,11 @@ logger = logging.getLogger(__name__)
 logger.setLevel('DEBUG')
 logging.getLogger('telethon').setLevel(logging.WARNING)
 
-PRIVATE_INFO_MESSAGE = ("**Note**: your private information is not visible in any way for "
-                        "other users but still visible for the bot creator for debugging purposes. In future, this "
-                        "personal information will be private for everyone including admins and developers")
-
-START_MESSAGE = ("Welcome to the 'telefeed' project. To start using the bot, you have to add it as an administrator to your "
-                 "**public** channel. If you don't have any, create one. For **each** created channel you will be able "
-                 "to get personalised feed.\n"+PRIVATE_INFO_MESSAGE)
-
-ABOUT_MESSAGE = ("The purpose of this bot is to aggregate all your channels into one feed, as well as filter ads "
-                 "and duplicated content.\n"
-                 "We recommend adding the bot to **separate** thematic channels (news, games, art, etc.) for better "
-                 "recommendations. "
-                 "To receive even more relevant content, you can allow reactions on your public channel and use them "
-                 "for the content published. You can use any reaction which describes your (surprisingly) reaction the "
-                 "best but the most important reactions for our recommender system are '👍' and '👎' - use them "
-                 "if you like or dislike the content. To indicate spam, use '💩' and '🤬'. This will be used for further "
-                 "filtering.\n" + PRIVATE_INFO_MESSAGE)
-
-FEEDBACK_MESSAGE = "Your feedback is appreciated.\nPlease, contact t.me/OlegBEZb regarding any issues"
-
-
 # TODO: move to a separate file and dynamically add to the list of handlers like in
 # https://github.com/Lonami/TelethonianBotExt
-# these commands should be available and visible only for devs
 
-import bot_menu_handlers
 bot_client.start(bot_token=config.bot_token)
 logger.info('bot started')
-
-
-# ChatAction only handles MessageService in this case, what's the chat type you're adding to. removal should be decided by Telegram.
-# You can use Raw and handle UpdateChannel*
-# A broadcast channel doesn't have action messages opposite of groups. and Telegram api is very changing, ChatAction
-# needs to support those new changes at some point. since remove actions aren't sent.
-
-# @client.on(events.Raw(telethon.types.UpdateBotChatInviteRequester))
-# async def approve(e):
-#     await client(functions.messages.HideChatJoinRequestRequest(e.peer, e.user_id, approved=True or False
-#       )
-# )
 
 
 # needed to catch all kinds of events related to bots because for some reason these events are
@@ -257,14 +222,16 @@ async def admin_command_send_all(event):
                 return
             if msg.text != '+':
                 return
+            await conv.send_message('Your input is processed well', buttons=Button.clear())
         except asyncio.exceptions.TimeoutError:
             await event.reply("Timeout for adding a source channel. Press the button once again")
             logger.error(f"User ({sender_id}) faced a timeout in adding a source channel to add")
             return
 
-    # users = ["194124545", "5790168960", "274295051"]
+    users = ["194124545"]#, "5790168960", "249830866"]
     for user in users:
         await bot_client.send_message(int(user), message.strip())
+        print('sent to', user)
     logger.debug(f"Sent a general message to users: {users}")
 
 
