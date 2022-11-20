@@ -1,8 +1,8 @@
 import asyncio
+from math import ceil
 
 from telethon import events, types, Button
 
-from math import ceil
 from src import config, bot_client, NO_ARG_CLI_COMMANDS, CLI_COMMANDS
 from src.database_utils import get_users
 from src.bot_cli_utils import add_to_channel
@@ -164,7 +164,7 @@ async def button_button_add_to_channel(event):
     try:
         src_ch = check_channel_correctness(src_ch)
     except:
-        await event.reply(f"Was not able to process the argument. Start from pressing the button once again")
+        await event.reply("Was not able to process the argument. Start from pressing the button once again")
         logger.error(f"User {await get_user_display_name(bot_client, int(sender_id))} ({sender_id}) failed in /add_to_channel", exc_info=True)
         return
 

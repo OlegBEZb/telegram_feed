@@ -1,11 +1,12 @@
 import asyncio
+from copy import deepcopy
 
 from typing import List
 from telethon.tl.patched import Message
 from telethon.sync import TelegramClient
 from telethon.tl.types import MessageMediaDocument, MessageMediaPhoto, MessageMediaWebPage, MessageMediaPoll
 
-from src.utils import open_json, get_history, get_source_channel_name_for_message
+from src.utils import get_history, get_source_channel_name_for_message
 from src.database_utils import get_rb_filters
 from src import config
 
@@ -126,52 +127,6 @@ def message_is_filtered_by_rules(msg: Message, rules_list: List[str]):
         return False
 
 
-def open_rules_file():
-    """
-    Opens file with rules for advertisements and returns a list with rules to apply
-    :return:
-    """
-    ads = open_json(name="ads")
-    ads_list = list()
-    for ad in ads:
-        ads_list.append(ad)  # each term may have it's priority. Now it's 0 as a placeholder
-    return ads_list
-
-
-def check_messages_with_rules(msg_list: List[Message]) -> List[Message]:
-    """
-    From a list of messages which was planned to be sent removes the ones according to the rules.
-    If at least one of the messages in the group is filtered out, the whole group will be dropped
-    as well.
-    :param msg_list:
-    :return:
-    """
-    checkrules_list = open_rules_file()
-
-    if checkrules_list is None:
-        logger.debug("There are no advertising\\filtering rules to check")
-        return msg_list
-
-    messages_checked_list = list()
-    spam_group_id = -1
-    spam_message = None
-    spam_message_ids = []
-    for msg in reversed(msg_list):
-        if message_is_filtered_by_rules(msg, checkrules_list):
-            if msg.grouped_id is not None:
-                spam_group_id = msg.grouped_id
-                spam_message = msg.message
-            spam_message_ids.append(msg.id)
-        else:
-            if msg.grouped_id != spam_group_id:
-                messages_checked_list.append(msg)
-            else:
-                logger.debug(f'removed message from spam group {spam_group_id}. Spam message\n{spam_message}')
-                spam_message_ids.append(msg.id)
-    logger.debug(f'spam_message_ids: {spam_message_ids}')
-    return messages_checked_list
-
-
 class Filter:
     def __init__(self, rule_base_check=True, history_check=True, client: TelegramClient=None, dst_channel=None,
                  use_common_rules=True):
@@ -207,22 +162,39 @@ class Filter:
         :param msg_list:
         :return:
         """
-        # TODO: check order twice
+        # TODO: move filtering_details logic to the _filter function and mb split common/personal rb
+        msg_list_before = deepcopy(msg_list)
+
         if self.rule_base_check and self.checkrules_list != []:
             logger.log(5, f"Performing a rule-based filtering for {self.dst_channel}")
             msg_list = self._filter(msg_list, filter_func=message_is_filtered_by_rules, rules_list=self.checkrules_list)
-            if len(msg_list) == 0:
-                return []
-        if self.history_check:
+            filtering_details = {k.id: (None if k.id in [m.id for m in msg_list] else 'rb') for k in msg_list_before}
+            msg_list_before = deepcopy(msg_list)
+        if msg_list and self.history_check:
             logger.debug(f"Performing a history filtering for {self.dst_channel}")
             # have to be more or less global and extended after every message forwarded to my channel
             dst_channel_history = get_history(client=self.client, peer=self.dst_channel, limit=100)
             msg_list = self._filter(msg_list, filter_func=message_is_duplicated,
                                     history=dst_channel_history, client=self.client)
-        return msg_list
+            # (v if v is not None or k in [m.id for m in msg_list] else 'hist')
+            # we keep None for the normal messages, 'hist' for the ones filtered on this step, and we preserve 'rb'
+            # from the prev step
+            filtering_details = {k: (v if v is not None or k in [m.id for m in msg_list] else 'hist') for k, v in filtering_details.items()}
+
+        return msg_list, filtering_details
 
     def _filter(self, msg_list: List[Message], filter_func, **filter_func_kwargs) -> List[Message]:
-        msg_list_filtered = list()
+        """
+        From a list of messages which was planned to be sent removes the ones according to the filter_func.
+        If at least one of the messages in the group is filtered out, the whole group will be dropped
+        as well.
+
+        :param msg_list:
+        :param filter_func:
+        :param filter_func_kwargs:
+        :return:
+        """
+        msg_list_filtered = []
         to_drop_group_id = -1
         to_drop_message = None
         to_drop_message_ids = []
@@ -243,7 +215,7 @@ class Filter:
                     msg_list_filtered.append(msg)
                 else:
                     logger.debug(
-                        f'removed an indirect spam message from to_drop group {to_drop_group_id}. To_drop message\n{to_drop_message[:20]}')
+                        f'removed an indirect spam message from to_drop group {to_drop_group_id}. To_drop message:\n{to_drop_message[:20]}')
                     to_drop_message_ids.append(msg.id)
         logger.log(5, f'to_drop_message_ids: {to_drop_message_ids}')
 
@@ -274,7 +246,7 @@ if __name__ == '__main__':
     import telethon.sync
     client = start_client('telefeed_client')
 
-    my_channel_history = get_history(client=client, peer=config.MyChannel, limit=150)
+    my_channel_history = get_history(client=client, peer=config.MyChannel, limit=50)
     filtering_component = Filter(rule_base_check=True, history_check=True, client=client,
                                  dst_channel='https://t.me/DeepStuffChannel'
                                  )
@@ -291,5 +263,6 @@ if __name__ == '__main__':
     ))
 
     messages = to_filter_messages.messages
-    messages_checked_list = filtering_component.filter_messages(messages)
+    messages_checked_list, filtering_details = filtering_component.filter_messages(messages)
     print(f'Before {len(messages)}. After {len(messages_checked_list)}')
+    print('filtering_details', filtering_details)

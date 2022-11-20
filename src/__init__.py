@@ -43,9 +43,10 @@ PRIVATE_INFO_MESSAGE = ("**Note**: your private information is not visible in an
                         "other users but still visible for the bot creator for debugging purposes. In future, this "
                         "personal information will be private for everyone including admins and developers")
 
-START_MESSAGE = ("Welcome to the 'telefeed' project. To start using the bot, you have to add it as an administrator to your "
-                 "**public** channel. If you don't have any, create one. For **each** created channel you will be able "
-                 "to get personalised feed.\n"+PRIVATE_INFO_MESSAGE)
+START_MESSAGE = (
+            "Welcome to the 'telefeed' project. To start using the bot, you have to add it as an administrator to your "
+            "**public** channel. If you don't have any, create one. For **each** created channel you will be able "
+            "to get personalised feed.\n" + PRIVATE_INFO_MESSAGE)
 
 ABOUT_MESSAGE = ("The purpose of this bot is to aggregate all your channels into one feed, as well as filter ads "
                  "and duplicated content.\n"

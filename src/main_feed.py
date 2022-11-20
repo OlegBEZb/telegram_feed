@@ -1,3 +1,5 @@
+import asyncio
+
 import argparse
 
 from random import randint
@@ -15,7 +17,7 @@ from telethon.tl.functions.messages import GetPeerDialogsRequest, MarkDialogUnre
 from telethon.tl.functions.messages import ForwardMessagesRequest
 
 from src.utils import get_history, start_client
-from src.database_utils import get_last_channel_ids, update_last_channel_ids, get_feeds
+from src.database_utils import get_last_channel_ids, update_last_channel_ids, get_feeds, log_messages
 
 from src import config
 from src.filtering.filter import Filter
@@ -43,8 +45,8 @@ def forward_msgs(client: TelegramClient,
     :param peer_to_forward_to:
     :return:
     """
-    grouped_msg_ids = list()  # https://github.com/LonamiWebs/Telethon/issues/1216
-    msg_non_grouped = list()
+    grouped_msg_ids = []  # https://github.com/LonamiWebs/Telethon/issues/1216
+    msg_non_grouped = []
     last_grouped_id = -1
 
     for msg in reversed(msg_list):  # starting from the chronologically first
@@ -56,12 +58,12 @@ def forward_msgs(client: TelegramClient,
                 if msg_non_grouped:  # a group came after a single message
                     logger.debug(f'Sending {len(msg_non_grouped)} non-grouped message(s)')
                     send_msg(client, peer, msg_non_grouped, peer_to_forward_to)
-                    msg_non_grouped = list()
+                    msg_non_grouped = []
                 if grouped_msg_ids:  # in case of consequent groups
                     logger.debug(
                         f"Sending group of {len(grouped_msg_ids)} message(s) with last_grouped_id {last_grouped_id}")
                     send_msg(client, peer, grouped_msg_ids, peer_to_forward_to)
-                    grouped_msg_ids = list()
+                    grouped_msg_ids = []
                 last_grouped_id = msg.grouped_id
                 grouped_msg_ids.append(msg.id)
                 logger.debug(
@@ -70,7 +72,7 @@ def forward_msgs(client: TelegramClient,
             if grouped_msg_ids:
                 logger.debug(f"Sending group of {len(grouped_msg_ids)} message(s) with last_grouped_id {last_grouped_id}")
                 send_msg(client, peer, grouped_msg_ids, peer_to_forward_to)
-                grouped_msg_ids = list()
+                grouped_msg_ids = []
             msg_non_grouped.append(msg.id)
             logger.debug(f"Non-grouped messages list is extended. Total size: {len(msg_non_grouped)}")
 
@@ -197,11 +199,14 @@ def main(client: TelegramClient):
                     # TODO: perform history check later wrt the dst channel and it's rb list
                     filter_component = Filter(rule_base_check=True, history_check=True, client=client,
                                               dst_channel=dst_ch, use_common_rules=True)
-                    messages_checked_list = filter_component.filter_messages(msg_list)
+                    messages_checked_list, filtering_details = filter_component.filter_messages(msg_list)
                     logger.debug(f'Before filtering: {len(msg_list)}. After {len(messages_checked_list)}')
 
-                    # forward_msgs(client=client, peer=channel_id, msg_list=messages_checked_list,
-                    #              peer_to_forward_to=dst_channels)  # config.MyChannel
+                    asyncio.get_event_loop().run_until_complete(log_messages(client=client,
+                                                                             msg_list_before=msg_list,
+                                                                             filtering_details=filtering_details,
+                                                                             user_channel_name=dst_ch))
+
                     forward_msgs(client=bot, peer=channel_id, msg_list=messages_checked_list,
                                  peer_to_forward_to=dst_ch)
 
@@ -233,7 +238,8 @@ if __name__ == '__main__':
         force=True)
     logger = logging.getLogger(__name__)
     logger.setLevel(log_level)
-    logging.getLogger('src.filtering.filter').setLevel(log_level)
+    # logging.getLogger('src.filtering.filter').setLevel(log_level)
+    logging.getLogger('src').setLevel(log_level)
 
     # if log_level != 'DEBUG':
     #     logging.getLogger('telethon').setLevel(logging.ERROR)

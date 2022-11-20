@@ -95,6 +95,7 @@ async def get_channel_name(client: TelegramClient, entity):
     :return:
     """
     entity = await client.get_input_entity(entity)
+    # TODO: make some cache because of Sleeping for 11s (0:00:11) on GetFullChannelRequest flood wait
     chat_full = await client(GetFullChannelRequest(entity))
     if hasattr(chat_full, 'chats') and len(chat_full.chats) > 0:
         chat_title = chat_full.chats[0].title
@@ -133,6 +134,7 @@ async def get_channel_link(client: TelegramClient, entity):
     entity = await client.get_input_entity(entity)
     chat_full = await client(GetFullChannelRequest(entity))
     if hasattr(chat_full, 'chats') and len(chat_full.chats) > 0:
+        # TODO: check username was None
         username = chat_full.chats[0].username
         return f"https://t.me/{username}"
 
@@ -245,7 +247,7 @@ def get_history(client: TelegramClient, **get_history_request_kwargs):
 
 async def get_source_channel_name_for_message(client: TelegramClient, msg: Message):
     try:
-        if isinstance(msg.fwd_from, MessageFwdHeader):
+        if isinstance(msg.fwd_from, MessageFwdHeader):  # if message was forwared to a place where we got it
             if msg.fwd_from.from_id is not None:
                 orig_name = await get_channel_name(client, msg.fwd_from.from_id.channel_id)
             elif msg.fwd_from.from_name is not None:
@@ -256,7 +258,7 @@ async def get_source_channel_name_for_message(client: TelegramClient, msg: Messa
             orig_date = msg.fwd_from.date
             fwd_to_name = await get_channel_name(client, msg.chat_id)
             fwd_date = msg.date
-        else:
+        else:  # this message is original
             orig_name = await get_channel_name(client, msg.chat_id)
             orig_date = msg.date
             fwd_to_name, fwd_date = None, None

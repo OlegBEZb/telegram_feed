@@ -12,4 +12,7 @@ disable=
     consider-using-f-string,
     import-error,
     missing-function-docstring,
-    logging-fstring-interpolation
+    logging-fstring-interpolation,
+    bare-except,  # remove this later
+    invalid-names,
+    wrong-import-order

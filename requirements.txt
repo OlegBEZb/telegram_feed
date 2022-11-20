@@ -1,3 +1,5 @@
 telethon
 cryptg
 pre-commit
+aiocsv
+aiofiles

@@ -1,8 +1,19 @@
 import json
 import os
 from collections import defaultdict
+import datetime
+from typing import List
 
-from src.utils import check_channel_correctness, get_project_root
+
+import csv
+import aiofiles
+from aiocsv import AsyncDictWriter
+
+
+from telethon.tl.patched import Message
+from telethon.sync import TelegramClient
+
+from src.utils import check_channel_correctness, get_project_root, get_source_channel_name_for_message
 
 import logging
 logger = logging.getLogger(__name__)
@@ -11,6 +22,7 @@ USERS_FILEPATH = "./data/users.json"
 FEEDS_FILEPATH = "./data/feeds.json"
 LAST_CHANNEL_MESSAGE_ID_FILEPATH = './data/last_channel_message_id.json'
 RB_FILTER_LISTS_FILEPATH = 'src/data/rule_based_filter_lists.json'
+TRANSACTIONS_FILEPATH = 'src/data/transactions.csv'
 
 
 def get_last_channel_ids():
@@ -109,3 +121,95 @@ def get_rb_filters():
     else:
         data = defaultdict(list)
     return data
+
+
+def get_transaction_template():
+    d = {'transaction_id': None,
+         'processing_timestamp': None,
+         'action': None,  # action (added sub\removed sub\started bot\added bot to channel) (only if channel action)
+
+         'user_id': None,
+         'user_channel_id': None,
+         'user_channel_name': None,
+
+         'src_channel_id': None,
+         'src_channel_name': None,
+         'src_forwarded_from_original_timestamp': None,
+
+         'original_channel_id': None,
+         'original_channel_name': None,
+         'original_post_timestamp': None,
+
+         'message_id': None,  # (none if channel action)
+         'message_text': None,
+         
+         'filtered_by_common_rb': None,
+         'filtered_by_personal_rb': None,
+         'filtered_by_hist': None,
+         'filtered_by_ml': None}
+    return d
+
+
+# check if dir exist if not create it
+def check_dir(file_name):
+    directory = os.path.dirname(file_name)
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+
+
+async def dict_to_csv_async(d: List[dict], filepath: str):
+    check_dir(filepath)
+    if not os.path.isfile(filepath):
+        logger.info(f"Creating a new file for: {filepath}")
+        async with aiofiles.open(filepath, mode="w", encoding="utf-8", newline="") as afp:
+            writer = AsyncDictWriter(afp, fieldnames=list(d[0].keys()), restval="NULL", quoting=csv.QUOTE_ALL)
+            await writer.writeheader()
+
+    # dict writing, all quoted, "NULL" for missing fields
+    async with aiofiles.open(filepath, mode="a", encoding="utf-8", newline="") as afp:
+        writer = AsyncDictWriter(afp, fieldnames=list(d[0].keys()), restval="NULL", quoting=csv.QUOTE_ALL)
+        await writer.writerows(d)
+
+
+async def log_messages(client: TelegramClient, msg_list_before: List[Message],
+                       filtering_details: dict,
+                       **kwargs):
+    assert len(msg_list_before) == len(filtering_details)
+
+    rows = []
+    for m in msg_list_before:
+        row_dict = get_transaction_template()
+        row_dict['processing_timestamp'] = datetime.datetime.now()
+        # row_dict['user_channel_name'] = dst_ch
+        row_dict['src_channel_message_id'] = m.id
+        row_dict['message_text'] = m.message
+
+        orig_name, orig_date, fwd_to_name, fwd_date = await get_source_channel_name_for_message(client, m)
+        if fwd_to_name is None:
+            row_dict['src_channel_name'] = orig_name
+            row_dict['original_channel_name'] = orig_name
+            row_dict['original_post_timestamp'] = orig_date
+        else:
+            row_dict['src_channel_name'] = fwd_to_name
+            row_dict['original_channel_name'] = orig_name
+
+            row_dict['original_post_timestamp'] = orig_date
+            row_dict['src_forwarded_from_original_timestamp'] = fwd_date
+
+        if filtering_details[m.id] is None:
+            row_dict['action'] = 'forward'
+        elif filtering_details[m.id] == 'rb':
+            row_dict['action'] = 'filter'
+            row_dict['filtered_by_personal_rb'] = True
+        elif filtering_details[m.id] == 'hist':
+            row_dict['action'] = 'filter'
+            row_dict['filtered_by_hist'] = True
+
+        row_dict.update(kwargs)
+
+        rows.append(row_dict)
+
+    root = get_project_root()
+    path = os.path.join(root, TRANSACTIONS_FILEPATH)
+    await dict_to_csv_async(d=rows, filepath=path)
+    logger.debug("Saved transactions for messages")

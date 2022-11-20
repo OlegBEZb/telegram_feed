@@ -25,6 +25,7 @@ logging.getLogger('telethon').setLevel(logging.WARNING)
 # TODO: move to a separate file and dynamically add to the list of handlers like in
 # https://github.com/Lonami/TelethonianBotExt
 
+import bot_menu_handlers
 bot_client.start(bot_token=config.bot_token)
 logger.info('bot started')
 
@@ -39,23 +40,23 @@ logger.info('bot started')
 
 @bot_client.on(events.Raw(types.UpdateChannelParticipant))
 # ChannelParticipant, ChannelParticipantSelf, ChannelParticipantCreator, ChannelParticipantAdmin, ChannelParticipantBanned, ChannelParticipantLeft
-async def update_channel_participant(e):
-    channel_id = int('-100' + str(e.channel_id))
-    if e.new_participant:
+async def update_channel_participant(event):
+    channel_id = int('-100' + str(event.channel_id))
+    if event.new_participant:
         # TODO: decide with chat_id types: int or str
-        if isinstance(e.new_participant, types.ChannelParticipantAdmin) and e.new_participant.user_id == config.bot_id:
-            logger.info(f"Bot is added as admin at '{channel_id}' due to '{e.actor_id}'s action")
+        if isinstance(event.new_participant, types.ChannelParticipantAdmin) and event.new_participant.user_id == config.bot_id:
+            logger.info(f"Bot is added as admin at '{channel_id}' due to '{event.actor_id}'s action")
 
             users = get_users()
-            users = update_user(users, e.actor_id, channel_id, add_not_remove=True)
+            users = update_user(users, event.actor_id, channel_id, add_not_remove=True)
             save_users(users)
 
-    elif e.prev_participant:
-        if isinstance(e.prev_participant, types.ChannelParticipantAdmin) and e.prev_participant.user_id == config.bot_id:
-            logger.info(f"Bot is no longer an admin at '{channel_id}' due to '{e.actor_id}'s action")
+    elif event.prev_participant:
+        if isinstance(event.prev_participant, types.ChannelParticipantAdmin) and event.prev_participant.user_id == config.bot_id:
+            logger.info(f"Bot is no longer an admin at '{channel_id}' due to '{event.actor_id}'s action")
 
             users = get_users()
-            users = update_user(users, e.actor_id, channel_id, add_not_remove=False)
+            users = update_user(users, event.actor_id, channel_id, add_not_remove=False)
             save_users(users)
             # TODO: remove related records from the DB (feeds, etc.)
 
@@ -228,7 +229,7 @@ async def admin_command_send_all(event):
             logger.error(f"User ({sender_id}) faced a timeout in adding a source channel to add")
             return
 
-    users = ["194124545"]#, "5790168960", "249830866"]
+    users = ["194124545"]  #, "5790168960", "249830866"]
     for user in users:
         await bot_client.send_message(int(user), message.strip())
         print('sent to', user)
