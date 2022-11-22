@@ -6,7 +6,7 @@ from telethon.tl.patched import Message
 from telethon.sync import TelegramClient
 from telethon.tl.types import MessageMediaDocument, MessageMediaPhoto, MessageMediaWebPage, MessageMediaPoll
 
-from src.utils import get_history, get_source_channel_name_for_message
+from src.utils import get_history, get_message_origins
 from src.database_utils import get_rb_filters
 from src import config
 
@@ -72,8 +72,8 @@ def message_is_duplicated(msg: Message, history, client: TelegramClient):
     for history_msg in history.messages:
         if message_is_same(history_msg, msg):
             # the rest of the function is for debugging purposes
-            orig_name1, orig_date1, fwd_to_name1, fwd_date1 = asyncio.get_event_loop().run_until_complete(get_source_channel_name_for_message(client, history_msg))
-            orig_name2, orig_date2, fwd_to_name2, fwd_date2 = asyncio.get_event_loop().run_until_complete(get_source_channel_name_for_message(client, msg))
+            orig_name1, orig_date1, fwd_to_name1, fwd_date1 = asyncio.get_event_loop().run_until_complete(get_message_origins(client, history_msg))
+            orig_name2, orig_date2, fwd_to_name2, fwd_date2 = asyncio.get_event_loop().run_until_complete(get_message_origins(client, msg))
             if fwd_to_name1 is None:  # channel 1 has it's own post
                 if fwd_to_name2 is None:  # channel 2 has it's own post
                     if orig_date1 > orig_date2:
@@ -89,7 +89,7 @@ def message_is_duplicated(msg: Message, history, client: TelegramClient):
                     else:
                         logger.debug(
                             f"Message '{history_msg.message[:20]}...' was published by '{orig_name1}' before '{fwd_to_name2} (forwarded from '{orig_name2}')")
-            else:  # channel 1 has forwarded post
+            else:  # channel 1 has forwarded post at fwd_date1 date
                 if fwd_to_name2 is None:  # channel 2 has it's own post
                     if fwd_date1 > orig_date2:
                         logger.debug(

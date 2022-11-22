@@ -1,7 +1,7 @@
 # grouped, pylint, json, yaml, xunit, text
 output-format: pylint
 
-strictness: veryhigh  # ‘verylow’, ‘low’, ‘medium’ (the default), ‘high’ and ‘veryhigh‘
+strictness: high  # ‘verylow’, ‘low’, ‘medium’ (the default), ‘high’ and ‘veryhigh‘
 #doc-warnings: true
 #test-warnings: false
 max-line-length: 180
@@ -41,6 +41,7 @@ pycodestyle:
     run: true
     disable:
       - E722
+      - E252
 
 # Pydocstyle is a simple tool to warn about violations of the PEP257 Docstring Conventions. It produces messages for
 # any divergence from the style guide.

@@ -1,4 +1,7 @@
 import asyncio
+import os
+import pandas as pd
+from datetime import datetime
 
 from telethon import events, types, Button
 import telethon.utils as tutils
@@ -8,9 +11,9 @@ import config
 import logging
 
 from src import bot_client, CLI_COMMANDS, ADMIN_COMMANDS, START_MESSAGE, ABOUT_MESSAGE, FEEDBACK_MESSAGE
-from src.utils import check_channel_correctness, list_to_str_newline, get_channel_link, get_user_display_name
+from src.utils import check_channel_correctness, list_to_str_newline, get_channel_link, get_display_name
 from src.bot_cli_utils import add_to_channel
-from src.database_utils import get_users, update_user, save_users, get_feeds
+from src.database_utils import get_users, update_user, save_users, get_feeds, get_project_root, TRANSACTIONS_FILEPATH
 
 logging.basicConfig(
     # filename="BotClient.log",
@@ -25,7 +28,8 @@ logging.getLogger('telethon').setLevel(logging.WARNING)
 # TODO: move to a separate file and dynamically add to the list of handlers like in
 # https://github.com/Lonami/TelethonianBotExt
 
-import bot_menu_handlers
+# do not remove import! handlers have to be initialized
+from bot_menu_handlers import command_help
 bot_client.start(bot_token=config.bot_token)
 logger.info('bot started')
 
@@ -80,7 +84,7 @@ async def command_help_text(event):
         help_text += help_descr[1] + "\n\n"
     help_text += FEEDBACK_MESSAGE
     await bot_client.send_message(sender_id, help_text)
-    logger.debug(f"Sent help_text to {await get_user_display_name(bot_client, int(sender_id))} ({sender_id})")
+    logger.debug(f"Sent help_text to {await get_display_name(bot_client, int(sender_id))} ({sender_id})")
 
 
 @bot_client.on(events.CallbackQuery(data=b"/start"))
@@ -98,8 +102,8 @@ async def command_start(event):
     if str(sender_id) not in users:  # if user hasn't used the "/start" command yet:
         users[sender_id] = []
         save_users(users)
-        await command_help_text(event)  # show the new user the help page
-        logger.info(f"New user {await get_user_display_name(bot_client, int(sender_id))} ({sender_id}) started the bot")
+        await command_help(event)  # show the new user the help page
+        logger.info(f"New user {await get_display_name(bot_client, int(sender_id))} ({sender_id}) started the bot")
     else:
         await bot_client.send_message(sender_id, "You are already in the user list")
 
@@ -112,7 +116,7 @@ async def command_about(event):
         await event.reply("Communication with the bot has to be performed only in direct messages, not public channels")
         return
     await bot_client.send_message(sender_id, f'{ABOUT_MESSAGE}\n\n{FEEDBACK_MESSAGE}')
-    logger.debug(f"Sent about to {await get_user_display_name(bot_client, int(sender_id))} ({sender_id})")
+    logger.debug(f"Sent about to {await get_display_name(bot_client, int(sender_id))} ({sender_id})")
 
 
 @bot_client.on(events.CallbackQuery(pattern='/channel_info'))  # with argument, pattern or data makes the difference
@@ -133,7 +137,7 @@ async def command_channel_info(event):
         dst_ch = check_channel_correctness(dst_ch)
     except:
         await event.reply(f"Was not able to process the argument. Check /help once again:\n{CLI_COMMANDS['/channel_info'][1]}")
-        logger.error(f"User {await get_user_display_name(bot_client, int(sender_id))} ({sender_id}) failed in command_channel_info", exc_info=True)
+        logger.error(f"User {await get_display_name(bot_client, int(sender_id))} ({sender_id}) failed in command_channel_info", exc_info=True)
         return
 
     # dst_ch_id = get_channel_id(bot, dst_ch)
@@ -151,7 +155,7 @@ async def command_channel_info(event):
         await event.reply("Your reading list is empty")
     else:
         await event.reply(f"Your reading list of {len(reading_list)} item(s) (sorted chronologically):\n{list_to_str_newline(reading_list)}")
-    logger.debug(f"{await get_user_display_name(bot_client, int(sender_id))} ({sender_id}) called /channel_info")
+    logger.debug(f"{await get_display_name(bot_client, int(sender_id))} ({sender_id}) called /channel_info")
 
 
 @bot_client.on(events.CallbackQuery(data=b"/my_channels"))
@@ -168,7 +172,7 @@ async def command_my_channels(event):  # callback function
     else:
         users_channels_links = [await get_channel_link(bot_client, ch) for ch in users_channels]
         await event.reply(f"Your channels (sorted chronologically):\n{list_to_str_newline(users_channels_links)}")
-    logger.debug(f"{await get_user_display_name(bot_client, int(sender_id))} ({sender_id}) called /my_channels")
+    logger.debug(f"{await get_display_name(bot_client, int(sender_id))} ({sender_id}) called /my_channels")
 
 
 @bot_client.on(events.NewMessage(pattern='/users'))
@@ -184,7 +188,7 @@ async def admin_command_users(event):
         await event.reply("You don't have any yet")
     else:
         # TODO: add the number of channels per user
-        user_names = [await get_user_display_name(bot_client, int(u)) for u in users]
+        user_names = [await get_display_name(bot_client, int(u)) for u in users]
         rows = [f"{name:.<18} ({user_id}) - {len(channels):.>5} channel(s)" for name, user_id, channels in zip(user_names, users, users.values())]
         await event.reply(f"Your {len(users)} user(s) (sorted chronologically):\n{list_to_str_newline(rows)}")
 
@@ -198,7 +202,7 @@ async def echo_all(event):
     cmd = message.text.split()[0]
     if cmd not in dict(CLI_COMMANDS, **ADMIN_COMMANDS) and cmd != '/help':
         # await event.reply("This is an unrecognized command. Use /help to list all available commands")
-        logger.error(f"User {await get_user_display_name(bot_client, int(sender_id))} ({sender_id}) called an unrecognized command\n{message.text}", exc_info=True)
+        logger.error(f"User {await get_display_name(bot_client, int(sender_id))} ({sender_id}) called an unrecognized command\n{message.text}", exc_info=True)
 
 
 @bot_client.on(events.NewMessage(pattern='/send_all'))
@@ -236,6 +240,63 @@ async def admin_command_send_all(event):
     logger.debug(f"Sent a general message to users: {users}")
 
 
+@bot_client.on(events.NewMessage(pattern='/send_stats'))
+async def admin_command_send_stats(event):
+    sender_id = event.chat_id
+    if int(sender_id) != config.my_id:
+        await event.reply("You are not allowed to perform this action")
+        return
+
+    report_template = ("This is a daily stats digest!\n"
+                       "Today the bot processed: {total_messages} messages\n"
+                       "Today you received: {forwarded_num} messages\n"
+                       "Our filtering prevented you from: {filtered_num} messages")
+
+    root = get_project_root()
+    path = os.path.join(root, TRANSACTIONS_FILEPATH)
+    trans_df = pd.read_csv(path)
+
+    time_cols = ['processing_timestamp', 'original_post_timestamp', 'src_forwarded_from_original_timestamp']
+    trans_df[time_cols] = trans_df[time_cols].apply(pd.to_datetime, errors='coerce')
+    trans_df['processing_date'] = trans_df['processing_timestamp'].dt.date
+
+    today = datetime.today().date()
+    trans_df = trans_df[trans_df['processing_date'] == today]
+
+    digest_df = trans_df.pivot_table(index=['user_channel_name'], columns='action', aggfunc='size', fill_value=0)
+    if 'filter' not in digest_df:
+        digest_df['filter'] = 0
+    if 'forward' not in digest_df:
+        digest_df['forward'] = 0
+    digest_df['sum'] = digest_df['filter'] + digest_df['forward']
+
+    top_sources_df = trans_df[trans_df['processing_date'] == today].groupby([
+        'user_channel_name'
+    ])['src_channel_name'].apply(lambda x: x.value_counts().head(3))
+
+    feeds = get_feeds()
+    sent_to = []
+    for feed in feeds:
+    # for feed in ["https://t.me/DeepStuffChannel"]:
+        if feed not in digest_df.index:
+            continue
+        total_messages = digest_df.loc[feed, 'sum']
+        if total_messages > 0:
+            filtered_num, forwarded_num = digest_df.loc[feed, ['filter', 'forward']].to_list()
+
+            report = report_template.format(total_messages=total_messages, forwarded_num=forwarded_num, filtered_num=filtered_num)
+
+            sources_df = top_sources_df.loc[feed]
+            report += f'\n\nTop {len(sources_df)} source channels:\n'
+            for k, v in sources_df.items():
+                report += f"{k}: {v} message(s)\n"
+
+            report += "\n\nText t.me/OlegBEZb if you want to see something else in the daily report"
+            await bot_client.send_message(feed, report)
+            sent_to.append(feed)
+    logger.debug(f"Sent daily status to channels:\n{list_to_str_newline(sent_to)}")
+
+
 @bot_client.on(events.NewMessage(pattern='/add_to_channel'))
 async def command_add_to_channel(event):  # callback function
     sender_id = event.chat_id
@@ -247,7 +308,7 @@ async def command_add_to_channel(event):  # callback function
         await add_to_channel(message.text, sender_id)
     except:
         await event.reply("Was not able to add channel. Check if your destination channel is public and the bot is added as admin")
-        logger.error(f"User {await get_user_display_name(bot_client, int(sender_id))} ({sender_id}) failed to perform /add_to_channel with the following command: \"{message.text[:100]}\"", exc_info=True)
+        logger.error(f"User {await get_display_name(bot_client, int(sender_id))} ({sender_id}) failed to perform /add_to_channel with the following command: \"{message.text[:100]}\"", exc_info=True)
 
 
 bot_client.run_until_disconnected()

@@ -13,13 +13,13 @@ from aiocsv import AsyncDictWriter
 from telethon.tl.patched import Message
 from telethon.sync import TelegramClient
 
-from src.utils import check_channel_correctness, get_project_root, get_source_channel_name_for_message
+from src.utils import check_channel_correctness, get_project_root, get_message_origins
 
 import logging
 logger = logging.getLogger(__name__)
 
 USERS_FILEPATH = "./data/users.json"
-FEEDS_FILEPATH = "./data/feeds.json"
+FEEDS_FILEPATH = "src/data/feeds.json"
 LAST_CHANNEL_MESSAGE_ID_FILEPATH = './data/last_channel_message_id.json'
 RB_FILTER_LISTS_FILEPATH = 'src/data/rule_based_filter_lists.json'
 TRANSACTIONS_FILEPATH = 'src/data/transactions.csv'
@@ -83,8 +83,11 @@ def save_users(data):
 
 
 def get_feeds():
-    if os.path.exists(FEEDS_FILEPATH):
-        with open(FEEDS_FILEPATH, 'r', encoding='utf-8-sig') as f:
+    root = get_project_root()
+    path = os.path.join(root, FEEDS_FILEPATH)
+
+    if os.path.exists(path):
+        with open(path, 'r', encoding='utf-8-sig') as f:
             data = defaultdict(list, json.load(f))
     else:
         data = defaultdict(list)
@@ -106,7 +109,10 @@ def update_feed(feeds, dst_ch, src_ch, add_not_remove=True):
 
 
 def save_feeds(data):
-    with open(FEEDS_FILEPATH, 'w') as f:
+    root = get_project_root()
+    path = os.path.join(root, FEEDS_FILEPATH)
+
+    with open(path, 'w') as f:
         json.dump(data, f)
     logger.debug(f'updated channels\n{data}')
 
@@ -184,7 +190,7 @@ async def log_messages(client: TelegramClient, msg_list_before: List[Message],
         row_dict['src_channel_message_id'] = m.id
         row_dict['message_text'] = m.message
 
-        orig_name, orig_date, fwd_to_name, fwd_date = await get_source_channel_name_for_message(client, m)
+        orig_name, orig_date, fwd_to_name, fwd_date = await get_message_origins(client, m)
         if fwd_to_name is None:
             row_dict['src_channel_name'] = orig_name
             row_dict['original_channel_name'] = orig_name

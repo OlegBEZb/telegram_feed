@@ -7,7 +7,7 @@ from src import config, bot_client, NO_ARG_CLI_COMMANDS, CLI_COMMANDS
 from src.database_utils import get_users
 from src.bot_cli_utils import add_to_channel
 
-from utils import get_channel_link, check_channel_correctness, get_user_display_name
+from utils import get_channel_link, check_channel_correctness, get_display_name
 
 import logging
 logger = logging.getLogger(__name__)
@@ -89,7 +89,7 @@ async def command_help(event):
     buttons = paginate_help(event, 0, cmd_text2data, "helpme")
     await event.reply("Select one of the following", buttons=buttons)
     # await bot_client.send_message(sender_id, "Select one of the following", buttons=buttons)
-    logger.debug(f"Sent help to {await get_user_display_name(bot_client, int(sender_id))} ({sender_id})")
+    logger.debug(f"Sent help to {await get_display_name(bot_client, int(sender_id))} ({sender_id})")
 
 
 @bot_client.on(events.CallbackQuery(data=b"button_/channel_info"))
@@ -165,7 +165,7 @@ async def button_button_add_to_channel(event):
         src_ch = check_channel_correctness(src_ch)
     except:
         await event.reply("Was not able to process the argument. Start from pressing the button once again")
-        logger.error(f"User {await get_user_display_name(bot_client, int(sender_id))} ({sender_id}) failed in /add_to_channel", exc_info=True)
+        logger.error(f"User {await get_display_name(bot_client, int(sender_id))} ({sender_id}) failed in /add_to_channel", exc_info=True)
         return
 
     # /add_to_channel src_ch dst_ch

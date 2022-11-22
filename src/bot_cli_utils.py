@@ -2,7 +2,7 @@ from telethon import utils as tutils
 
 from src import bot_client
 from src.database_utils import get_users, get_feeds, update_feed, save_feeds
-from src.utils import check_channel_correctness, list_to_str_newline, get_user_display_name
+from src.utils import check_channel_correctness, list_to_str_newline, get_display_name
 
 import logging
 logger = logging.getLogger(__name__)
@@ -31,4 +31,4 @@ async def add_to_channel(text: str, sender_id):  # TODO: add types
     save_feeds(feeds)
     # TODO: add notification that the channel was already there
     await bot_client.send_message(sender_id, f"Added! Now your reading list is the following:\n{list_to_str_newline(feeds[dst_ch])}")
-    logger.debug(f"{await get_user_display_name(bot_client, int(sender_id))} ({sender_id}) added {src_ch} to {dst_ch}", exc_info=True)
+    logger.debug(f"{await get_display_name(bot_client, int(sender_id))} ({sender_id}) added {src_ch} to {dst_ch}", exc_info=True)

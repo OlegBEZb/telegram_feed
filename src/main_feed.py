@@ -135,33 +135,33 @@ def main(client: TelegramClient):
         for x in v:
             scr2dst.setdefault(x, []).append(k)
 
-    for channel_id, dst_channels in scr2dst.items():  # pool of all channels for all users
+    for channel_link, dst_channel_link_list in scr2dst.items():  # pool of all channels for all users
         # TODO: resurrect it back. When the channel is just added with 0 from default dict, give some small portion of
         # content. Not 100
-        # if channels[channel_id] == 0:  # last message_id is 0 because the channel is added manually
-        #     logger.debug(f"Channel {channel_id} is just added and doesn't have the last message id")
-        #     # if channel_id.find("t.me/joinchat") != -1:
-        #     #     ch = channel_id.split("/")
+        # if channels[channel_link] == 0:  # last message_id is 0 because the channel is added manually
+        #     logger.debug(f"Channel {channel_link} is just added and doesn't have the last message id")
+        #     # if channel_link.find("t.me/joinchat") != -1:
+        #     #     ch = channel_link.split("/")
         #     #     req = ch[len(ch)-1]
         #     #     isCorrect = CheckCorrectlyPrivateLink(client, req)
         #     #     if not isCorrect:
-        #     #         channels.pop(channel_id)
+        #     #         channels.pop(channel_link)
         #     #         print("Removing incorrect channel")
         #     #         break
         #     #     Subs2PrivateChat(client, req)
-        #     channel_checked = check_channel_correctness(channel_id)
+        #     channel_checked = check_channel_correctness(channel_link)
         #     if channel_checked == 'error':
-        #         req = channel_id.split("/")[-1]
+        #         req = channel_link.split("/")[-1]
         #         if not CheckCorrectlyPrivateLink(client, req):
-        #             channels.pop(channel_id)
-        #             print(f"Removing incorrect channel: {channel_id}")
+        #             channels.pop(channel_link)
+        #             print(f"Removing incorrect channel: {channel_link}")
         #             break
         #         Subs2PrivateChat(client, req)
         #
         #     channels = OpenUpdateTime()
         try:
-            # logger.log(5, f"Searching for new messages in channel: {channel_id} with the last msg_id {channels[channel_id]}")
-            logger.log(5, f"Searching for new messages in channel: {channel_id}")
+            # logger.log(5, f"Searching for new messages in channel: {channel_link} with the last msg_id {channels[channel_link]}")
+            logger.log(5, f"Searching for new messages in channel: {channel_link}")
 
             do_process_channel = False
 
@@ -170,32 +170,33 @@ def main(client: TelegramClient):
             # some message ID in the past - this is what we do. For the just added channel with the default last
             # message id of 0, the batch will be large. But after disconnections this limit of 100 may be insufficient
             # and there will be gaps
-            messages = get_history(client=client, min_id=last_channel_ids[channel_id], peer=channel_id,
+            messages = get_history(client=client, min_id=last_channel_ids[channel_link], peer=channel_link,
                                    limit=30)
+            # check telethon.errors.rpcerrorlist.ChannelPrivateError
             if len(messages.messages) > 0:
                 do_process_channel = True
             else:
                 # solution based on telegram dialog fields
-                dialog = client(GetPeerDialogsRequest(peers=[channel_id])).dialogs[0]
+                dialog = client(GetPeerDialogsRequest(peers=[channel_link])).dialogs[0]
                 # there are naturally unread messages or the channel is marked as unread
                 # it's important that for channels on which you are not subscribed, both unread_count and unread_mask
                 # don't work
                 if dialog.unread_count or dialog.unread_mark:
                     do_process_channel = True
                     if dialog.unread_mark:
-                        logger.info(f"Channel {channel_id} is marked as unread manually")
+                        logger.info(f"Channel {channel_link} is marked as unread manually")
                         # if fetched message.grouped_id is not None, fetch until group changes and then send
-                        messages = get_history(client=client, min_id=dialog.top_message - 1, peer=channel_id, limit=1)
+                        messages = get_history(client=client, min_id=dialog.top_message - 1, peer=channel_link, limit=1)
                     else:  # this should not be triggered and has to be removed
-                        logger.info(f"Channel {channel_id} has {dialog.unread_count} unread posts")
-                        messages = get_history(client=client, min_id=dialog.read_inbox_max_id, peer=channel_id,
+                        logger.info(f"Channel {channel_link} has {dialog.unread_count} unread posts")
+                        messages = get_history(client=client, min_id=dialog.read_inbox_max_id, peer=channel_link,
                                                limit=dialog.unread_count)
 
             if do_process_channel:
                 msg_list = messages.messages  # by default their order is descending (recent to old)
-                logger.debug(f"Found {len(msg_list)} message(s) in {messages.chats[0].title} (id={channel_id})")
+                logger.debug(f"Found {len(msg_list)} message(s) in {messages.chats[0].title} (id={channel_link})")
 
-                for dst_ch in dst_channels:
+                for dst_ch in dst_channel_link_list:
                     # TODO: perform history check later wrt the dst channel and it's rb list
                     filter_component = Filter(rule_base_check=True, history_check=True, client=client,
                                               dst_channel=dst_ch, use_common_rules=True)
@@ -207,20 +208,21 @@ def main(client: TelegramClient):
                                                                              filtering_details=filtering_details,
                                                                              user_channel_name=dst_ch))
 
-                    forward_msgs(client=bot, peer=channel_id, msg_list=messages_checked_list,
+                    forward_msgs(client=bot, peer=channel_link, msg_list=messages_checked_list,
                                  peer_to_forward_to=dst_ch)
 
                 last_msg_id = msg_list[0].id
-                last_channel_ids = update_last_channel_ids(channel_id, last_msg_id)
+                last_channel_ids = update_last_channel_ids(channel_link, last_msg_id)
 
                 # TODO: probably do this only for my subs.
-                client.send_read_acknowledge(channel_id, msg_list)
-                logger.debug(f"Channel {channel_id} is marked as read")
+                client.send_read_acknowledge(channel_link, msg_list)
+                logger.debug(f"Channel {channel_link} is marked as read")
 
                 logger.debug("\n")
 
         except Exception:
-            logger.error(f"Channel {channel_id} was not processed", exc_info=True)
+            # TODO: proccess if channle doesn't exist. delete and notify
+            logger.error(f"Channel {channel_link} was not processed", exc_info=True)
 
 
 if __name__ == '__main__':
