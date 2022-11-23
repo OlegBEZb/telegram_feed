@@ -13,7 +13,7 @@ from aiocsv import AsyncDictWriter
 from telethon.tl.patched import Message
 from telethon.sync import TelegramClient
 
-from src.utils import check_channel_correctness, get_project_root, get_message_origins
+from src.utils import check_channel_correctness, get_project_root, get_message_origins, list_to_str_newline
 
 import logging
 logger = logging.getLogger(__name__)
@@ -103,6 +103,7 @@ def update_feed(feeds, dst_ch, src_ch, add_not_remove=True):
             logger.warning(f"Channel {src_ch} is already in subs list of {dst_ch} channel")
         else:
             feeds[dst_ch].append(src_ch)
+            logger.debug(f'updated channel {dst_ch}. Updated list:\n{list_to_str_newline(feeds[dst_ch])}')
     else:
         feeds[dst_ch] = [c for c in feeds[dst_ch] if c != src_ch]
     return feeds
@@ -114,7 +115,6 @@ def save_feeds(data):
 
     with open(path, 'w') as f:
         json.dump(data, f)
-    logger.debug(f'updated channels\n{data}')
 
 
 def get_rb_filters():

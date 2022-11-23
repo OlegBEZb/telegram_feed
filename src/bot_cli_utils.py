@@ -22,10 +22,12 @@ async def add_to_channel(text: str, sender_id):  # TODO: add types
                                       "You are not allowed to perform this action. Try to add the bot to your channel as admin.")
         return
     feeds = get_feeds()
-    if src_ch in feeds:
+    if src_ch in feeds or (src_ch == dst_ch):  # will not be in feeds if this is a first subscription
         # TODO: think about potential solution
         await bot_client.send_message(sender_id,
                                       "You can not add somebody's (including your) target channel as your source because of potential infinite loops")
+        logger.INFO(f"{await get_display_name(bot_client, int(sender_id))} ({sender_id}) tried to add {src_ch} to {dst_ch}",
+                    exc_info=True)
         return
     update_feed(feeds, dst_ch, src_ch, add_not_remove=True)
     save_feeds(feeds)

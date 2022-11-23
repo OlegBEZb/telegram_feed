@@ -62,6 +62,8 @@ realisation).
       1. RL for recommender
       2. content type (polls, gifs, etc)
       3. is subscribed to this channel
+      4. is a group message
+         1. this group has poll, images..
    3. Detect the desired amount of content per day/hour and do not recommend more (may affect the thresholds for recommender)
    4. Spam detection
          1. fix Russian spam-filter bypass #промо - generate automatically combinations

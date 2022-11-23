@@ -11,7 +11,7 @@ import logging
 from typing import List
 
 from telethon.sync import TelegramClient
-from telethon.tl.types import TypeInputPeer
+from telethon.tl.types import TypeInputPeer, MessageActionGroupCall, MessageActionGroupCallScheduled
 from telethon.tl.patched import Message
 from telethon.tl.functions.messages import GetPeerDialogsRequest, MarkDialogUnreadRequest
 from telethon.tl.functions.messages import ForwardMessagesRequest
@@ -50,6 +50,14 @@ def forward_msgs(client: TelegramClient,
     last_grouped_id = -1
 
     for msg in reversed(msg_list):  # starting from the chronologically first
+        if isinstance(msg.action, (MessageActionGroupCall, MessageActionGroupCall)):
+            if msg.action.duration is None:
+                logger.info(f"{peer} started a call")
+                client.send_message(peer_to_forward_to, f"{peer} started a call")
+            else:
+                logger.info(f"{peer} ended a call")
+                client.send_message(peer_to_forward_to, f"{peer} ended a call")
+            continue
         if msg.grouped_id is not None:  # the current message is a part of a group
             if msg.grouped_id == last_grouped_id:  # extending the same group
                 grouped_msg_ids.append(msg.id)
@@ -194,7 +202,7 @@ def main(client: TelegramClient):
 
             if do_process_channel:
                 msg_list = messages.messages  # by default their order is descending (recent to old)
-                logger.debug(f"Found {len(msg_list)} message(s) in {messages.chats[0].title} (id={channel_link})")
+                logger.debug(f"Found {len(msg_list)} message(s) in '{messages.chats[0].title}' ({channel_link})")
 
                 for dst_ch in dst_channel_link_list:
                     # TODO: perform history check later wrt the dst channel and it's rb list

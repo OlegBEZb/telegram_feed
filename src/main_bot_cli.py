@@ -229,7 +229,8 @@ async def admin_command_send_all(event):
                 return
             await conv.send_message('Your input is processed well', buttons=Button.clear())
         except asyncio.exceptions.TimeoutError:
-            await event.reply("Timeout for adding a source channel. Press the button once again")
+            await event.reply("Timeout for adding a source channel. Press the button once again",
+                              buttons=Button.clear())
             logger.error(f"User ({sender_id}) faced a timeout in adding a source channel to add")
             return
 

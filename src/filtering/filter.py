@@ -31,6 +31,7 @@ def media_is_duplicated(m1, m2):
         d1 = m1.webpage.to_dict()
         d2 = m2.webpage.to_dict()
     elif isinstance(m1, MessageMediaPoll):
+        # TODO: check what defines a unique poll
         d1 = m1.poll.to_dict()
         d2 = m2.poll.to_dict()
     else:
@@ -116,6 +117,10 @@ def message_is_filtered_by_rules(msg: Message, rules_list: List[str]):
     :param rules_list:
     :return:
     """
+    if msg.message is None:
+        logger.warning("An empty message came to a message_is_filtered_by_rules function")
+        return False
+
     try:
         for phrase in rules_list:
             if msg.message.lower().find(phrase.lower()) != -1:
@@ -123,7 +128,7 @@ def message_is_filtered_by_rules(msg: Message, rules_list: List[str]):
                 return True
         return False
     except:
-        logger.error(f"Failed to check the message {msg} against the phrase {phrase}")
+        logger.error(f"Failed to check the message against the phrase {phrase}:\n{msg}", exc_info=True)
         return False
 
 
@@ -252,7 +257,7 @@ if __name__ == '__main__':
                                  )
 
     to_filter_messages = client(GetHistoryRequest(
-        peer='https://t.me/DeepFaker',
+        peer='https://t.me/ai_newz',  # 'https://t.me/DeepFaker
         offset_id=0,
         offset_date=0,
         add_offset=0,
