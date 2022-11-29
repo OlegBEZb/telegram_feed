@@ -1,13 +1,13 @@
 import time
+import itertools
 from copy import deepcopy
 from pathlib import Path
 
 from telethon import TelegramClient, utils as tutils
-from telethon.tl.functions.channels import GetFullChannelRequest
 from telethon.tl.functions.messages import GetHistoryRequest, CheckChatInviteRequest, ImportChatInviteRequest
 from telethon.tl.patched import Message
 from telethon.tl.types import MessageFwdHeader
-from telethon.errors.rpcerrorlist import ChannelPrivateError
+from telethon.errors.rpcerrorlist import ChannelPrivateError, UsernameNotOccupiedError
 
 from src import config
 
@@ -16,7 +16,9 @@ logger = logging.getLogger(__name__)
 
 
 def get_project_root() -> Path:
-    return Path(__file__).parent.parent
+    path = Path(__file__).parent.parent.parent
+    logger.log(5, f'fetched project root: {path}')
+    return Path(__file__).parent.parent.parent
 
 
 # TODO: check that it's a link
@@ -33,8 +35,8 @@ def check_channel_correctness(channel: str) -> str:
     if channel.find("https://t.me/") == -1:
         # return "error"
         raise ValueError(f"Channel of inappropriate format: {channel}")
-    else:
-        return channel
+
+    return channel
 
 
 def get_reactions(msg: Message):
@@ -233,21 +235,29 @@ def get_history(client: TelegramClient, **get_history_request_kwargs):
             messages = messages_total
         else:
             messages = client(GetHistoryRequest(**get_history_request_kwargs))
-    except ValueError as e:
-        print(e)
+    except ChannelPrivateError:
+        logger.error('Failed to fetch history as the channel is private or you are banned')
+        return None
+    except UsernameNotOccupiedError:
+        logger.error(f"The username {get_history_request_kwargs['peer']} is not in use by anyone else yet")
+        # TODO: remove channel from database or fetch the recent info
+    except ValueError:
+        logger.error('Failed in get_history', exc_info=True)
+        return None
+        # print(e)
 
     return messages
 
 
 async def get_message_origins(client: TelegramClient, msg: Message):
     try:
-        if isinstance(msg.fwd_from, MessageFwdHeader):  # if message was forwared to a place where we got it
+        if isinstance(msg.fwd_from, MessageFwdHeader):  # if message was forwarded to a place where we got it
             if msg.fwd_from.from_id is not None:
                 channel_id = msg.fwd_from.from_id.channel_id
                 try:
                     orig_name = await get_display_name(client, channel_id)
                 except ChannelPrivateError:
-                    logger.error(f'Failed to define the name of the channel id {channel_id} because of privacy')
+                    logger.error(f'Failed to define the name of the original channel id {channel_id} because of privacy')
                     orig_name = f'_Private_channel_{channel_id}_'
             elif msg.fwd_from.from_name is not None:
                 orig_name = msg.fwd_from.from_name
@@ -304,3 +314,64 @@ def start_client(client_name='default_client', **start_kwargs):
 
 def list_to_str_newline(ls):
     return '\n'.join([str(el) for el in ls])
+
+
+def chunks(lst, n):
+    """Yield successive n-sized chunks from lst."""
+    for i in range(0, len(lst), n):
+        yield lst[i:i + n]
+
+
+def flatten_iterable(iterable):
+    return list(itertools.chain.from_iterable(iterable))
+
+
+def get_msg_media_type(msg: Message):
+    return str(type(msg.media)).split("'")[1].split('.')[-1]
+
+
+async def extract_msg_features(msg: Message, client: TelegramClient = None, **kwargs):
+    result_dict = dict()
+    result_dict['src_channel_message_id'] = msg.id
+    result_dict['message_text'] = msg.message
+    result_dict['pinned'] = msg.pinned
+    result_dict['grouped_id'] = msg.grouped_id
+    result_dict['media'] = msg.media
+    result_dict['media_type'] = get_msg_media_type(msg)
+
+    if result_dict['message_text'] is None:
+        result_dict.update({'empty_text': True, 'message_text': ''})
+    else:
+        result_dict.update({'empty_text': False})
+
+    if result_dict['grouped_id'] is None:
+        result_dict['grouped'] = False
+    else:
+        result_dict['grouped'] = True
+
+    if client is not None:
+        orig_name, orig_date, fwd_to_name, fwd_date = await get_message_origins(client, msg)
+        result_dict['original_channel_name'] = orig_name
+        result_dict['original_post_timestamp'] = orig_date  # TODO: add difference with the time of processing
+        if fwd_to_name is None:
+            result_dict['src_channel_name'] = orig_name
+            result_dict['src_forwarded_from_original_timestamp'] = None
+
+            result_dict['original_content'] = True
+        else:
+            result_dict['src_channel_name'] = fwd_to_name
+            result_dict['src_forwarded_from_original_timestamp'] = fwd_date
+
+            result_dict['original_content'] = False
+
+    reactions_dict = get_reactions(msg)  # may cause different amounts of fields
+    if reactions_dict is not None:  # may be updated without checking if None?
+        result_dict.update(reactions_dict)
+
+    result_dict['entities'] = msg.entities
+    if msg.entities is not None:
+        result_dict['entities_num'] = len(msg.entities)
+    else:
+        result_dict['entities_num'] = 0
+
+    return result_dict

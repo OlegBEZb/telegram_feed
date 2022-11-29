@@ -1,19 +1,15 @@
-import asyncio
-import os
-import pandas as pd
-from datetime import datetime
-
 from telethon import events, types, Button
 import telethon.utils as tutils
+from telethon.events import StopPropagation
 
 import config
 
 import logging
 
-from src import bot_client, CLI_COMMANDS, ADMIN_COMMANDS, START_MESSAGE, ABOUT_MESSAGE, FEEDBACK_MESSAGE
-from src.utils import check_channel_correctness, list_to_str_newline, get_channel_link, get_display_name
-from src.bot_cli_utils import add_to_channel
-from src.database_utils import get_users, update_user, save_users, get_feeds, get_project_root, TRANSACTIONS_FILEPATH
+from src.bot import bot_client, CLI_COMMANDS, ADMIN_COMMANDS, START_MESSAGE, ABOUT_MESSAGE, FEEDBACK_MESSAGE
+from src.common.utils import check_channel_correctness, list_to_str_newline, get_channel_link, get_display_name
+from src.bot.bot_cli_utils import add_to_channel
+from src.common.database_utils import get_users, update_user, save_users, get_feeds
 
 logging.basicConfig(
     # filename="BotClient.log",
@@ -29,8 +25,12 @@ logging.getLogger('telethon').setLevel(logging.WARNING)
 # https://github.com/Lonami/TelethonianBotExt
 
 # do not remove import! handlers have to be initialized
-from bot_menu_handlers import command_help
+from src.bot.bot_menu_handlers import command_menu
+import src.bot.admin_command_handlers
+
 bot_client.start(bot_token=config.bot_token)
+for func, event in bot_client.list_event_handlers():
+    print(func.__name__, event.Event)
 logger.info('bot started')
 
 
@@ -43,12 +43,12 @@ logger.info('bot started')
 
 
 @bot_client.on(events.Raw(types.UpdateChannelParticipant))
-# ChannelParticipant, ChannelParticipantSelf, ChannelParticipantCreator, ChannelParticipantAdmin, ChannelParticipantBanned, ChannelParticipantLeft
 async def update_channel_participant(event):
     channel_id = int('-100' + str(event.channel_id))
     if event.new_participant:
         # TODO: decide with chat_id types: int or str
-        if isinstance(event.new_participant, types.ChannelParticipantAdmin) and event.new_participant.user_id == config.bot_id:
+        if isinstance(event.new_participant,
+                      types.ChannelParticipantAdmin) and event.new_participant.user_id == config.bot_id:
             logger.info(f"Bot is added as admin at '{channel_id}' due to '{event.actor_id}'s action")
 
             users = get_users()
@@ -56,7 +56,8 @@ async def update_channel_participant(event):
             save_users(users)
 
     elif event.prev_participant:
-        if isinstance(event.prev_participant, types.ChannelParticipantAdmin) and event.prev_participant.user_id == config.bot_id:
+        if isinstance(event.prev_participant,
+                      types.ChannelParticipantAdmin) and event.prev_participant.user_id == config.bot_id:
             logger.info(f"Bot is no longer an admin at '{channel_id}' due to '{event.actor_id}'s action")
 
             users = get_users()
@@ -65,6 +66,8 @@ async def update_channel_participant(event):
             # TODO: remove related records from the DB (feeds, etc.)
 
 
+# TODO: find a proper way of escaping
+@bot_client.on(events.NewMessage(pattern=CLI_COMMANDS['/help_text'][0].replace('(', '\(').replace(')', '\)')))
 @bot_client.on(events.CallbackQuery(data=b"/help_text"))
 @bot_client.on(events.NewMessage(pattern='/help_text'))
 async def command_help_text(event):
@@ -79,14 +82,16 @@ async def command_help_text(event):
     help_text = "The following commands are available: \n"
     for cmd, help_descr in CLI_COMMANDS.items():  # generate help text out of the commands dictionary defined at the top
         if cmd == '/help_text':
-            help_text += "/help: User-friendly menu with buttons\n\n"
+            help_text += "/menu: User-friendly menu with buttons\n\n"
         help_text += cmd + ": "
         help_text += help_descr[1] + "\n\n"
     help_text += FEEDBACK_MESSAGE
     await bot_client.send_message(sender_id, help_text)
-    logger.debug(f"Sent help_text to {await get_display_name(bot_client, int(sender_id))} ({sender_id})")
+    logger.debug(f"{await get_display_name(bot_client, int(sender_id))} ({sender_id}) called /help_text")
+    raise StopPropagation
 
 
+@bot_client.on(events.NewMessage(pattern=CLI_COMMANDS['/start'][0]))
 @bot_client.on(events.CallbackQuery(data=b"/start"))
 # @bot_client.on(events.CallbackQuery(pattern=b"/start"))  # works as well
 # @bot_client.on(events.CallbackQuery(pattern=r"/start"))  # works as well
@@ -102,12 +107,15 @@ async def command_start(event):
     if str(sender_id) not in users:  # if user hasn't used the "/start" command yet:
         users[sender_id] = []
         save_users(users)
-        await command_help(event)  # show the new user the help page
+        await command_menu(event)
         logger.info(f"New user {await get_display_name(bot_client, int(sender_id))} ({sender_id}) started the bot")
     else:
         await bot_client.send_message(sender_id, "You are already in the user list")
+        logger.debug(f"{await get_display_name(bot_client, int(sender_id))} ({sender_id}) called /start")
+    raise StopPropagation
 
 
+@bot_client.on(events.NewMessage(pattern=CLI_COMMANDS['/about'][0]))
 @bot_client.on(events.CallbackQuery(data=b"/about"))
 @bot_client.on(events.NewMessage(pattern='/about'))
 async def command_about(event):
@@ -116,7 +124,8 @@ async def command_about(event):
         await event.reply("Communication with the bot has to be performed only in direct messages, not public channels")
         return
     await bot_client.send_message(sender_id, f'{ABOUT_MESSAGE}\n\n{FEEDBACK_MESSAGE}')
-    logger.debug(f"Sent about to {await get_display_name(bot_client, int(sender_id))} ({sender_id})")
+    logger.debug(f"{await get_display_name(bot_client, int(sender_id))} ({sender_id}) called /about")
+    raise StopPropagation
 
 
 @bot_client.on(events.CallbackQuery(pattern='/channel_info'))  # with argument, pattern or data makes the difference
@@ -136,8 +145,11 @@ async def command_channel_info(event):
         _, dst_ch = message.split()
         dst_ch = check_channel_correctness(dst_ch)
     except:
-        await event.reply(f"Was not able to process the argument. Check /help once again:\n{CLI_COMMANDS['/channel_info'][1]}")
-        logger.error(f"User {await get_display_name(bot_client, int(sender_id))} ({sender_id}) failed in command_channel_info", exc_info=True)
+        await event.reply(
+            f"Was not able to process the argument. Check /help once again:\n{CLI_COMMANDS['/channel_info'][1]}")
+        logger.error(
+            f"User {await get_display_name(bot_client, int(sender_id))} ({sender_id}) failed in command_channel_info",
+            exc_info=True)
         return
 
     # dst_ch_id = get_channel_id(bot, dst_ch)
@@ -154,10 +166,12 @@ async def command_channel_info(event):
     if not reading_list:
         await event.reply("Your reading list is empty")
     else:
-        await event.reply(f"Your reading list of {len(reading_list)} item(s) (sorted chronologically):\n{list_to_str_newline(reading_list)}")
+        await event.reply(
+            f"Your reading list of {len(reading_list)} item(s) (sorted chronologically):\n{list_to_str_newline(reading_list)}")
     logger.debug(f"{await get_display_name(bot_client, int(sender_id))} ({sender_id}) called /channel_info")
 
 
+@bot_client.on(events.NewMessage(pattern=CLI_COMMANDS['/my_channels'][0]))
 @bot_client.on(events.CallbackQuery(data=b"/my_channels"))
 @bot_client.on(events.NewMessage(pattern='/my_channels'))
 async def command_my_channels(event):  # callback function
@@ -173,24 +187,7 @@ async def command_my_channels(event):  # callback function
         users_channels_links = [await get_channel_link(bot_client, ch) for ch in users_channels]
         await event.reply(f"Your channels (sorted chronologically):\n{list_to_str_newline(users_channels_links)}")
     logger.debug(f"{await get_display_name(bot_client, int(sender_id))} ({sender_id}) called /my_channels")
-
-
-@bot_client.on(events.NewMessage(pattern='/users'))
-async def admin_command_users(event):
-    if not isinstance(event.chat, types.User):
-        return
-    sender_id = event.chat_id
-    if int(sender_id) != config.my_id:
-        await event.reply("You are not allowed to perform this action")
-        return
-    users = get_users()
-    if len(users) == 0:
-        await event.reply("You don't have any yet")
-    else:
-        # TODO: add the number of channels per user
-        user_names = [await get_display_name(bot_client, int(u)) for u in users]
-        rows = [f"{name:.<18} ({user_id}) - {len(channels):.>5} channel(s)" for name, user_id, channels in zip(user_names, users, users.values())]
-        await event.reply(f"Your {len(users)} user(s) (sorted chronologically):\n{list_to_str_newline(rows)}")
+    raise StopPropagation
 
 
 @bot_client.on(events.NewMessage)  # UpdateNewMessage
@@ -202,100 +199,9 @@ async def echo_all(event):
     cmd = message.text.split()[0]
     if cmd not in dict(CLI_COMMANDS, **ADMIN_COMMANDS) and cmd != '/help':
         # await event.reply("This is an unrecognized command. Use /help to list all available commands")
-        logger.error(f"User {await get_display_name(bot_client, int(sender_id))} ({sender_id}) called an unrecognized command\n{message.text}", exc_info=True)
-
-
-@bot_client.on(events.NewMessage(pattern='/send_all'))
-async def admin_command_send_all(event):
-    sender_id = event.chat_id
-    if int(sender_id) != config.my_id:
-        await event.reply("You are not allowed to perform this action")
-        return
-
-    message = event.message
-    _, message = message.text.split("/send_all")
-
-    users = get_users()
-
-    async with bot_client.conversation(event.sender_id, timeout=60) as conv:
-        try:
-            await conv.send_message(f"Are you sure about sending this to {len(users)} user(s)?",
-                                    buttons=Button.force_reply())
-            msg = await conv.get_reply()
-            if not msg.text:
-                await event.reply("You can only set a text message!")
-                return
-            if msg.text != '+':
-                return
-            await conv.send_message('Your input is processed well', buttons=Button.clear())
-        except asyncio.exceptions.TimeoutError:
-            await event.reply("Timeout for adding a source channel. Press the button once again",
-                              buttons=Button.clear())
-            logger.error(f"User ({sender_id}) faced a timeout in adding a source channel to add")
-            return
-
-    users = ["194124545"]  #, "5790168960", "249830866"]
-    for user in users:
-        await bot_client.send_message(int(user), message.strip())
-        print('sent to', user)
-    logger.debug(f"Sent a general message to users: {users}")
-
-
-@bot_client.on(events.NewMessage(pattern='/send_stats'))
-async def admin_command_send_stats(event):
-    sender_id = event.chat_id
-    if int(sender_id) != config.my_id:
-        await event.reply("You are not allowed to perform this action")
-        return
-
-    report_template = ("This is a daily stats digest!\n"
-                       "Today the bot processed: {total_messages} messages\n"
-                       "Today you received: {forwarded_num} messages\n"
-                       "Our filtering prevented you from: {filtered_num} messages")
-
-    root = get_project_root()
-    path = os.path.join(root, TRANSACTIONS_FILEPATH)
-    trans_df = pd.read_csv(path)
-
-    time_cols = ['processing_timestamp', 'original_post_timestamp', 'src_forwarded_from_original_timestamp']
-    trans_df[time_cols] = trans_df[time_cols].apply(pd.to_datetime, errors='coerce')
-    trans_df['processing_date'] = trans_df['processing_timestamp'].dt.date
-
-    today = datetime.today().date()
-    trans_df = trans_df[trans_df['processing_date'] == today]
-
-    digest_df = trans_df.pivot_table(index=['user_channel_name'], columns='action', aggfunc='size', fill_value=0)
-    if 'filter' not in digest_df:
-        digest_df['filter'] = 0
-    if 'forward' not in digest_df:
-        digest_df['forward'] = 0
-    digest_df['sum'] = digest_df['filter'] + digest_df['forward']
-
-    top_sources_df = trans_df[trans_df['processing_date'] == today].groupby([
-        'user_channel_name'
-    ])['src_channel_name'].apply(lambda x: x.value_counts().head(3))
-
-    feeds = get_feeds()
-    sent_to = []
-    for feed in feeds:
-    # for feed in ["https://t.me/DeepStuffChannel"]:
-        if feed not in digest_df.index:
-            continue
-        total_messages = digest_df.loc[feed, 'sum']
-        if total_messages > 0:
-            filtered_num, forwarded_num = digest_df.loc[feed, ['filter', 'forward']].to_list()
-
-            report = report_template.format(total_messages=total_messages, forwarded_num=forwarded_num, filtered_num=filtered_num)
-
-            sources_df = top_sources_df.loc[feed]
-            report += f'\n\nTop {len(sources_df)} source channels:\n'
-            for k, v in sources_df.items():
-                report += f"{k}: {v} message(s)\n"
-
-            report += "\n\nText t.me/OlegBEZb if you want to see something else in the daily report"
-            await bot_client.send_message(feed, report)
-            sent_to.append(feed)
-    logger.debug(f"Sent daily status to channels:\n{list_to_str_newline(sent_to)}")
+        logger.error(
+            f"User {await get_display_name(bot_client, int(sender_id))} ({sender_id}) called an unrecognized command\n{message.text}",
+            exc_info=True)
 
 
 @bot_client.on(events.NewMessage(pattern='/add_to_channel'))
@@ -308,8 +214,11 @@ async def command_add_to_channel(event):  # callback function
         message = event.message
         await add_to_channel(message.text, sender_id)
     except:
-        await event.reply("Was not able to add channel. Check if your destination channel is public and the bot is added as admin")
-        logger.error(f"User {await get_display_name(bot_client, int(sender_id))} ({sender_id}) failed to perform /add_to_channel with the following command: \"{message.text[:100]}\"", exc_info=True)
+        await event.reply(
+            "Was not able to add channel. Check if your destination channel is public and the bot is added as admin")
+        logger.error(
+            f"User {await get_display_name(bot_client, int(sender_id))} ({sender_id}) failed to perform /add_to_channel with the following command: \"{message.text[:100]}\"",
+            exc_info=True)
 
 
 bot_client.run_until_disconnected()

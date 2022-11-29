@@ -13,21 +13,24 @@ from aiocsv import AsyncDictWriter
 from telethon.tl.patched import Message
 from telethon.sync import TelegramClient
 
-from src.utils import check_channel_correctness, get_project_root, get_message_origins, list_to_str_newline
+from src.common.utils import check_channel_correctness, get_project_root, get_message_origins, list_to_str_newline
 
 import logging
 logger = logging.getLogger(__name__)
 
-USERS_FILEPATH = "./data/users.json"
+USERS_FILEPATH = "src/data/users.json"
 FEEDS_FILEPATH = "src/data/feeds.json"
-LAST_CHANNEL_MESSAGE_ID_FILEPATH = './data/last_channel_message_id.json'
+LAST_CHANNEL_MESSAGE_ID_FILEPATH = 'src/data/last_channel_message_id.json'
 RB_FILTER_LISTS_FILEPATH = 'src/data/rule_based_filter_lists.json'
 TRANSACTIONS_FILEPATH = 'src/data/transactions.csv'
 
 
 def get_last_channel_ids():
-    if os.path.exists(LAST_CHANNEL_MESSAGE_ID_FILEPATH):
-        with open(LAST_CHANNEL_MESSAGE_ID_FILEPATH, 'r', encoding='utf-8-sig') as f:
+    root = get_project_root()
+    path = os.path.join(root, LAST_CHANNEL_MESSAGE_ID_FILEPATH)
+
+    if os.path.exists(path):
+        with open(path, 'r', encoding='utf-8-sig') as f:
             data = defaultdict(lambda: 0, json.load(f))
     else:
         data = defaultdict(lambda: 0)
@@ -35,7 +38,10 @@ def get_last_channel_ids():
 
 
 def save_last_channel_ids(channels: dict):
-    with open(LAST_CHANNEL_MESSAGE_ID_FILEPATH, 'w') as f:
+    root = get_project_root()
+    path = os.path.join(root, LAST_CHANNEL_MESSAGE_ID_FILEPATH)
+
+    with open(path, 'w') as f:
         json.dump(channels, f)
     logger.debug('saved updated channel ids')
 
@@ -48,19 +54,21 @@ def update_last_channel_ids(key, last_msg_id):
 
 
 def get_users():
-    if os.path.exists(USERS_FILEPATH):
-        with open(USERS_FILEPATH, 'r', encoding='utf-8-sig') as f:
-            data = defaultdict(list, json.load(f))
+    root = get_project_root()
+    path = os.path.join(root, USERS_FILEPATH)
+
+    if os.path.exists(path):
+        with open(path, 'r', encoding='utf-8-sig') as f:
+            data = defaultdict(list, {int(k): v for k, v in json.load(f).items()})  # a la deserializer
     else:
         data = defaultdict(list)
     return data
 
 
-def update_user(users_dict, user, channel_id=None, add_not_remove=True):
+def update_user(users_dict, user: int, channel_id=None, add_not_remove=True):
     # TODO: add ceiling for the number of channels for the user
-    # rn the structure of users is "user_id": [int(channel_id), int(channel_id)]
-    if isinstance(user, int):
-        user = str(user)
+    # rn the structure of users is "user_id": [int(channel_id), int(channel_id)] because of JSON limitations
+    # actually, all IDs are int
     if not str(channel_id).startswith('-100'):
         raise ValueError(f"Channel has to start from '-100'. Given: {str(channel_id)}")
 
@@ -77,9 +85,12 @@ def update_user(users_dict, user, channel_id=None, add_not_remove=True):
 
 
 def save_users(data):
-    with open(USERS_FILEPATH, 'w') as f:
+    root = get_project_root()
+    path = os.path.join(root, USERS_FILEPATH)
+
+    with open(path, 'w') as f:
         logger.debug(f'updated users\n{data}')
-        json.dump(data, f)
+        json.dump({str(k): v for k, v in data.items()}, f)
 
 
 def get_feeds():
@@ -186,7 +197,6 @@ async def log_messages(client: TelegramClient, msg_list_before: List[Message],
     for m in msg_list_before:
         row_dict = get_transaction_template()
         row_dict['processing_timestamp'] = datetime.datetime.now()
-        # row_dict['user_channel_name'] = dst_ch
         row_dict['src_channel_message_id'] = m.id
         row_dict['message_text'] = m.message
 

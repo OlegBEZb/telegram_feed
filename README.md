@@ -1,14 +1,14 @@
-# Union Channel 
+# telefeed 
 ## What's it?
 
 <img src="./images/telegram_feed.png" alt="architecture" align="center" width="700px"/>
 
-This is a simple program that will aggregate all your channels into one, as well as filter ads and duplicates in them. 
+This is a service that will aggregate all your channels into one, as well as filter ads and duplicates in them. 
 Deduplication works based on media, text, and text format. Duplicated media is enough to be rejected even with a new text.
 
 ## How it works?
 
-The program through your account goes to all the channels that you have added to the `channels.json` and sends them to 
+The program through your account goes to all the channels that you have added and sends them to 
 your personal (or not) channel. Subscribe to the channels in the telegrams is not required (based on the original 
 realisation).
 
@@ -51,34 +51,49 @@ realisation).
 
 
 # TODOs with descending priorities
-2. Per-channel content recommender
-   1. What content
+2. Switch feeds and users to integer ids (for both users and channels)
+3. Shared util for extracting usual fields from a message. Pass already extracted features to the recommender
+   1. transactions
+   2. download history with reactions
+   3. recommender
+4. Per-channel content recommender
+   1. On what level to predict: message, group, sending time
+   2. What content
       1. Just started. Do you like to follow [defaults]? Top 3 buttons
       2. Content from subscriptions
          1. when added a subscription: would you also like to subscribe to [channel similar to the added]
       3. New content non-following channels
       4. Channel recommendation itself (not content from it)? [Vlad](https://github.com/sawyre)'s idea). PageRank?
-   2. Features/approaches
+   3. Features/approaches
       1. RL for recommender
       2. content type (polls, gifs, etc)
       3. is subscribed to this channel
-      4. is a group message
+      4. reactions from the original channel as features for recommender
+      5. is a group message
          1. this group has poll, images..
-   3. Detect the desired amount of content per day/hour and do not recommend more (may affect the thresholds for recommender)
-   4. Spam detection
-         1. fix Russian spam-filter bypass #промо - generate automatically combinations
-         2. ...читать продолжение… - generate automatically combinations
-         3. user is able to add/delete this him/herself
-         4. should be extendable to rexeps
-         5. Filtering rules with some level of severity
-         6. Per-channel ML trained on special spam-related reactions (this may be incorporated into recommender itself)
-            1. count vectorizer to start with?
-            2. Average URL Number per Message
-            3. Unique URL Number
-            4. domain
-            5. add feedback loop from reactions in the chat (and some time after (from user's acceptance) delete the posts 
-            marked as spam\uninteresting)
-   5. Examples of usage
+      6. target: 10 - like, -1 - unread for a long time, -5 - dislike, -10 - spam
+   4. Detect the desired amount of content per day/hour and do not recommend more (may affect the thresholds for recommender)
+   5. Filtering
+      1. Spam detection
+            1. fix Russian spam-filter bypass #промо - generate automatically combinations or normalize all texts (forever or only for filtering purposes)
+            2. ...читать продолжение… - generate automatically combinations
+            3. user is able to add/delete this him/herself
+            4. should be extendable to rexeps
+            5. Filtering rules with some level of severity
+            6. Per-channel ML trained on special spam-related reactions (this may be incorporated into recommender itself)
+               1. count vectorizer to start with?
+               2. Average URL Number per Message
+               3. Unique URL Number
+               4. domain
+               5. add feedback loop from reactions in the chat (and some time after (from user's acceptance) delete the posts 
+               marked as spam\uninteresting)
+      2. Deduplication
+         1. Check fuzzy match for long texts. May be leading in comparison to the status quo when duplicated image is enough
+         2. Fuzzy deduplication of images 
+            1. https://www.youtube.com/watch?v=f60K3njUpK4&ab_channel=ODSAIGlobal
+            2. https://www.kaggle.com/code/franckepeixoto/phash-determine-whether-2-images-are-equal-or-not/notebook
+               1. https://github.com/OlegBEZb/MemeMash/blob/main/find_similar_images.py
+   6. Examples of usage
       1. Gif with already working bot overview
          1. Scenario:
             1. user has 3 channels with tons of unread messages
@@ -89,31 +104,35 @@ realisation).
             6. bot sends content to the user's channel
             7. user checks new content and reacts
       2. Gif with using the commands
-   6. Bot functionality
-       1. Create a channel for user and leave it after making the user an admin https://tl.telethon.dev/methods/channels/create_channel.html
-       2. keep help and about always in the bottom
-       3. Forward to private channels
-       4. add deletion from channel
-       5. add dynamic fetching of the handlers
-       6. Automatically send each user a notification with details when a new version of the code is merged to master
-       7. when you start resolving the list of commands after the bot was off for some time, the commands are read backwards
+   7. Bot functionality
+       1. Remove start from menu
+       2. About to the channel about?
+       3. Create a channel for user and leave it after making the user an admin https://tl.telethon.dev/methods/channels/create_channel.html
+       4. Forward to private channels
+       5. add deletion from channel
+       6. add dynamic fetching of the handlers
+       7. Automatically send each user a notification with details when a new version of the code is merged to master
+       8. when you start resolving the list of commands after the bot was off for some time, the commands are read backwards
 for some reason
-       8. resolve dst_ch reading another dst_ch. infinite forwarding btw dst channels
-       9. /add_to_channel to be used from the channel config itself with only one argument of src_ch. Make admin check
-   7. Deployment
+       9. resolve dst_ch reading another dst_ch. infinite forwarding btw dst channels
+       10. /add_to_channel to be used from the channel config itself with only one argument of src_ch. Make admin check
+       11. consider a link typed in the chat as a suggestion to add it as a source somewhere. Ask "which target channel to add to"
+       12. consider adding reaction buttons
+   8. Deployment
       1. switch to a database
       2. database will contain user's preferences, subscription lists
       3. dev env will have only developers' channels to be checked for some time
-   8. Statistics 
+   9. Statistics 
       1. originality of content produced by source channels (which original content they steal)
       2. "5 msg from this channel were filtered due to this and this filter. you can
 still find this content via this link"
       3. Timing, delays, potential scaling, bottlenecks
-      4. "don't forget to react to the content"
-   9. Add liked memes from profunctor
-   10. For ML-based spam detection and content recommendations: only admin's reactions or the whole channel's reactions
+      4. Number of users reactions + "don't forget to react to the content"
+      5. who reads posts
+   10. Add liked memes from profunctor
+   11. For ML-based spam detection and content recommendations: only admin's reactions or the whole channel's reactions
 are used? user's decision per channel?
-   11. deduplicate if the post covers the same news or the same model (within some period of time). 
+   12. deduplicate if the post covers the same news or the same model (within some period of time). 
 Different opinions from different channels might be interesting but very similar content 
 about the same news is definitely not
         1. text similarity?
@@ -126,15 +145,17 @@ about the same news is definitely not
            2. Somehow aggregate opinions from different channels via updating the first post on this topic
            3. Take better?
            4. use new telegram's feature called topics
-   12. If server is not available, close the session
-   13. If you are going to fetch several messages and the last one is a part of a group, the group has to be finished _get_history_
-   14. In debug mode, show what kind of post was forwarded (what media inside)
-   15. trace channel name changes (is it possible? what API says)
-   16. clean `https://t.me/profunctor_io`
-   17. create a func for deleting messages via bot
-   18. comments to the forwarded forwarded messages are sent after the actual message 
-   19. when forwarding, show the time of the original post (using API or just adding "orig time: ..." to the top)
-   20. Users list has to be updated according to the users who actually already stopped the bot or didn't add any channel
+   13. If server is not available, close the session
+   14. If you are going to fetch several messages and the last one is a part of a group, the group has to be finished _get_history_
+   15. In debug mode, show what kind of post was forwarded (what media inside)
+   16. trace channel name changes (is it possible? what API says)
+   17. clean `https://t.me/profunctor_io`
+   18. create a func for deleting messages via bot
+   19. comments to the forwarded forwarded messages are sent after the actual message 
+   20. when forwarding, show the time of the original post (using API or just adding "orig time: ..." to the top)
+   21. Users list has to be updated according to the users who actually already stopped the bot or didn't add any channel
+   22. Create some structure for channel: id, link, name
+   23. If something failed, do not mark as unread
 
 
 # Static code analysis

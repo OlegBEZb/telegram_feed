@@ -36,7 +36,8 @@ pyflakes:
     run: true
 
 # pycodestyle is a simple tool to warn about violations of the PEP8 style guide. It produces messages for any
-# divergence from the style guide.
+# divergence from the style guide. This package used to be called pep8 but was renamed to pycodestyle to reduce
+# confusion.
 pycodestyle:
     run: true
     disable:

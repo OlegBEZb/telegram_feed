@@ -6,8 +6,8 @@ from telethon.tl.patched import Message
 from telethon.sync import TelegramClient
 from telethon.tl.types import MessageMediaDocument, MessageMediaPhoto, MessageMediaWebPage, MessageMediaPoll
 
-from src.utils import get_history, get_message_origins
-from src.database_utils import get_rb_filters
+from src.common.utils import get_history, get_message_origins
+from src.common.database_utils import get_rb_filters
 from src import config
 
 import logging
@@ -69,44 +69,48 @@ def message_is_same(msg1: Message, msg2: Message):
     return is_duplicated
 
 
-def message_is_duplicated(msg: Message, history, client: TelegramClient):
-    for history_msg in history.messages:
-        if message_is_same(history_msg, msg):
-            # the rest of the function is for debugging purposes
-            orig_name1, orig_date1, fwd_to_name1, fwd_date1 = asyncio.get_event_loop().run_until_complete(get_message_origins(client, history_msg))
-            orig_name2, orig_date2, fwd_to_name2, fwd_date2 = asyncio.get_event_loop().run_until_complete(get_message_origins(client, msg))
-            if fwd_to_name1 is None:  # channel 1 has it's own post
-                if fwd_to_name2 is None:  # channel 2 has it's own post
-                    if orig_date1 > orig_date2:
-                        logger.debug(
-                            f"Message '{history_msg.message[:20]}...' was published by '{orig_name2}' before '{orig_name1}'")
-                    else:
-                        logger.debug(
-                            f"Message '{history_msg.message[:20]}...' was published by '{orig_name1}' before '{orig_name2}'")
-                else:  # channel 2 has forwarded post
-                    if orig_date1 > fwd_date2:
-                        logger.debug(
-                            f"Message '{history_msg.message[:20]}...' was published by '{fwd_to_name2}' (forwarded from '{orig_name2}') before '{orig_name1}'")
-                    else:
-                        logger.debug(
-                            f"Message '{history_msg.message[:20]}...' was published by '{orig_name1}' before '{fwd_to_name2} (forwarded from '{orig_name2}')")
-            else:  # channel 1 has forwarded post at fwd_date1 date
-                if fwd_to_name2 is None:  # channel 2 has it's own post
-                    if fwd_date1 > orig_date2:
-                        logger.debug(
-                            f"Message '{history_msg.message[:20]}...' was published by '{orig_name2}' before '{fwd_to_name1}' (forwarded from '{orig_name1}')")
-                    else:
-                        logger.debug(
-                            f"Message '{history_msg.message[:20]}...' was published by '{fwd_to_name1}' (forwarded from '{orig_name1}') before '{orig_name2}'")
-                else:  # channel 2 has forwarded post
-                    if fwd_date1 > fwd_date2:
-                        logger.debug(
-                            f"Message '{history_msg.message[:20]}...' was reposted by '{fwd_to_name2}' at {fwd_date2} (from '{orig_name2}') before '{fwd_to_name1}' at {fwd_date1} (from '{orig_name1}')")
-                    else:
-                        logger.debug(
-                            f"Message '{history_msg.message[:20]}...' was reposted by '{fwd_to_name1}' at {fwd_date1} (from '{orig_name1}') before '{fwd_to_name2}' at {fwd_date2} (from '{orig_name2}')")
-            return True
-    return False
+def message_is_duplicated(msg: Message, history_messages: List[Message], client: TelegramClient):
+    try:
+        for history_msg in history_messages:
+            if message_is_same(history_msg, msg):  # TODO: check the case where TypeError: 'NoneType' object is not subscriptable (approximately for history_msg)
+                # the rest of the function is for debugging purposes
+                orig_name1, orig_date1, fwd_to_name1, fwd_date1 = asyncio.get_event_loop().run_until_complete(get_message_origins(client, history_msg))
+                orig_name2, orig_date2, fwd_to_name2, fwd_date2 = asyncio.get_event_loop().run_until_complete(get_message_origins(client, msg))
+                if fwd_to_name1 is None:  # channel 1 has it's own post
+                    if fwd_to_name2 is None:  # channel 2 has it's own post
+                        if orig_date1 > orig_date2:
+                            logger.debug(
+                                f"Message '{history_msg.message[:20]}...' was published by '{orig_name2}' before '{orig_name1}'")
+                        else:
+                            logger.debug(
+                                f"Message '{history_msg.message[:20]}...' was published by '{orig_name1}' before '{orig_name2}'")
+                    else:  # channel 2 has forwarded post
+                        if orig_date1 > fwd_date2:
+                            logger.debug(
+                                f"Message '{history_msg.message[:20]}...' was published by '{fwd_to_name2}' (forwarded from '{orig_name2}') before '{orig_name1}'")
+                        else:
+                            logger.debug(
+                                f"Message '{history_msg.message[:20]}...' was published by '{orig_name1}' before '{fwd_to_name2} (forwarded from '{orig_name2}')")
+                else:  # channel 1 has forwarded post at fwd_date1 date
+                    if fwd_to_name2 is None:  # channel 2 has it's own post
+                        if fwd_date1 > orig_date2:
+                            logger.debug(
+                                f"Message '{history_msg.message[:20]}...' was published by '{orig_name2}' before '{fwd_to_name1}' (forwarded from '{orig_name1}')")
+                        else:
+                            logger.debug(
+                                f"Message '{history_msg.message[:20]}...' was published by '{fwd_to_name1}' (forwarded from '{orig_name1}') before '{orig_name2}'")
+                    else:  # channel 2 has forwarded post
+                        if fwd_date1 > fwd_date2:
+                            logger.debug(
+                                f"Message '{history_msg.message[:20]}...' was reposted by '{fwd_to_name2}' at {fwd_date2} (from '{orig_name2}') before '{fwd_to_name1}' at {fwd_date1} (from '{orig_name1}')")
+                        else:
+                            logger.debug(
+                                f"Message '{history_msg.message[:20]}...' was reposted by '{fwd_to_name1}' at {fwd_date1} (from '{orig_name1}') before '{fwd_to_name2}' at {fwd_date2} (from '{orig_name2}')")
+                return True
+        return False
+    except:
+        logger.error(f'unable to run message_is_duplicated\nhistory_msg\n{history_msg.stringify()}\n\nmsg\n{msg.stringify()}', exc_info=True)
+        return False
 
 
 def message_is_filtered_by_rules(msg: Message, rules_list: List[str]):
@@ -179,8 +183,11 @@ class Filter:
             logger.debug(f"Performing a history filtering for {self.dst_channel}")
             # have to be more or less global and extended after every message forwarded to my channel
             dst_channel_history = get_history(client=self.client, peer=self.dst_channel, limit=100)
+            dst_channel_history_messages = dst_channel_history.messages
+            dst_channel_history_messages = [msg for msg in dst_channel_history_messages if msg.action is None]  # filter out channel creation, voice calls, etc.
             msg_list = self._filter(msg_list, filter_func=message_is_duplicated,
-                                    history=dst_channel_history, client=self.client)
+                                    history_messages=dst_channel_history_messages,
+                                    client=self.client)
             # (v if v is not None or k in [m.id for m in msg_list] else 'hist')
             # we keep None for the normal messages, 'hist' for the ones filtered on this step, and we preserve 'rb'
             # from the prev step
@@ -201,7 +208,6 @@ class Filter:
         """
         msg_list_filtered = []
         to_drop_group_id = -1
-        to_drop_message = None
         to_drop_message_ids = []
 
         # when a message from a message group to be filtered but some messages from this group have already passed
@@ -244,24 +250,23 @@ if __name__ == '__main__':
         force=True)
     logging.getLogger(__name__).setLevel('DEBUG')
 
-    from src.utils import start_client
+    from src.common.utils import start_client
     from telethon.tl.functions.messages import GetHistoryRequest
 
     # https://arabic-telethon.readthedocs.io/en/stable/extra/advanced-usage/mastering-telethon.html#asyncio-madness
-    import telethon.sync
     client = start_client('telefeed_client')
 
-    my_channel_history = get_history(client=client, peer=config.MyChannel, limit=50)
+    my_channel_history = get_history(client=client, peer=config.MyChannel, limit=10)
     filtering_component = Filter(rule_base_check=True, history_check=True, client=client,
                                  dst_channel='https://t.me/DeepStuffChannel'
                                  )
 
     to_filter_messages = client(GetHistoryRequest(
-        peer='https://t.me/ai_newz',  # 'https://t.me/DeepFaker
+        peer='https://t.me/polzaSKIDKI',  # https://t.me/DeepFaker
         offset_id=0,
         offset_date=0,
         add_offset=0,
-        limit=20,
+        limit=10,
         max_id=0,
         min_id=0,
         hash=0

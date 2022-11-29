@@ -1,8 +1,8 @@
 from telethon import utils as tutils
 
-from src import bot_client
-from src.database_utils import get_users, get_feeds, update_feed, save_feeds
-from src.utils import check_channel_correctness, list_to_str_newline, get_display_name
+from src.bot import bot_client
+from src.common.database_utils import get_users, get_feeds, update_feed, save_feeds
+from src.common.utils import check_channel_correctness, list_to_str_newline, get_display_name
 
 import logging
 logger = logging.getLogger(__name__)
@@ -26,11 +26,19 @@ async def add_to_channel(text: str, sender_id):  # TODO: add types
         # TODO: think about potential solution
         await bot_client.send_message(sender_id,
                                       "You can not add somebody's (including your) target channel as your source because of potential infinite loops")
-        logger.INFO(f"{await get_display_name(bot_client, int(sender_id))} ({sender_id}) tried to add {src_ch} to {dst_ch}",
-                    exc_info=True)
+        logger.warning(f"{await get_display_name(bot_client, int(sender_id))} ({sender_id}) tried to add {src_ch} to {dst_ch}",
+                       exc_info=True)
         return
+
+    if src_ch in feeds[dst_ch]:
+        logger.debug(f"Channel {src_ch} is already in subs list of {dst_ch} channel")
+        await bot_client.send_message(sender_id,
+                                      f"Channel {src_ch} is already in your reading list:\n{list_to_str_newline(feeds[dst_ch])}")
+        return
+
     update_feed(feeds, dst_ch, src_ch, add_not_remove=True)
     save_feeds(feeds)
-    # TODO: add notification that the channel was already there
+
+    logger.debug(f"{await get_display_name(bot_client, int(sender_id))} ({sender_id}) added {src_ch} to {dst_ch}",
+                 exc_info=True)
     await bot_client.send_message(sender_id, f"Added! Now your reading list is the following:\n{list_to_str_newline(feeds[dst_ch])}")
-    logger.debug(f"{await get_display_name(bot_client, int(sender_id))} ({sender_id}) added {src_ch} to {dst_ch}", exc_info=True)

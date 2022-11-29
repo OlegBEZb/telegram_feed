@@ -1,5 +1,5 @@
 import asyncio
-
+import os
 import argparse
 
 from random import randint
@@ -11,16 +11,18 @@ import logging
 from typing import List
 
 from telethon.sync import TelegramClient
-from telethon.tl.types import TypeInputPeer, MessageActionGroupCall, MessageActionGroupCallScheduled
+from telethon.tl.types import TypeInputPeer, MessageActionGroupCall, MessageActionPinMessage
 from telethon.tl.patched import Message
-from telethon.tl.functions.messages import GetPeerDialogsRequest, MarkDialogUnreadRequest
+from telethon.tl.functions.messages import GetPeerDialogsRequest
 from telethon.tl.functions.messages import ForwardMessagesRequest
 
-from src.utils import get_history, start_client
-from src.database_utils import get_last_channel_ids, update_last_channel_ids, get_feeds, log_messages
+from src.common.utils import get_history, start_client, get_project_root, get_channel_link, get_channel_id
+from src.common.database_utils import get_last_channel_ids, update_last_channel_ids, get_feeds, log_messages
 
 from src import config
 from src.filtering.filter import Filter
+
+from src.recommender.recommender import ContentBasedRecommender
 
 
 MAIN_LOOP_DELAY_SEC_DEBUG = 10
@@ -50,6 +52,7 @@ def forward_msgs(client: TelegramClient,
     last_grouped_id = -1
 
     for msg in reversed(msg_list):  # starting from the chronologically first
+        # TODO: check if regular messages have action
         if isinstance(msg.action, (MessageActionGroupCall, MessageActionGroupCall)):
             if msg.action.duration is None:
                 logger.info(f"{peer} started a call")
@@ -58,6 +61,11 @@ def forward_msgs(client: TelegramClient,
                 logger.info(f"{peer} ended a call")
                 client.send_message(peer_to_forward_to, f"{peer} ended a call")
             continue
+        if isinstance(msg.action, MessageActionPinMessage):
+            logger.info(f"{peer} pinned a message")
+            client.send_message(peer_to_forward_to, f"{peer} pinned a message")
+            continue
+
         if msg.grouped_id is not None:  # the current message is a part of a group
             if msg.grouped_id == last_grouped_id:  # extending the same group
                 grouped_msg_ids.append(msg.id)
@@ -125,6 +133,7 @@ def send_msg(client: TelegramClient, peer, msg_ids_to_forward: List[int],
         # if peer_to_forward_to == config.MyChannel:
         #     client(MarkDialogUnreadRequest(peer=peer_to_forward_to, unread=True))
         #     logger.debug(f"{peer_to_forward_to} is marked as unread")
+    # telethon.errors.rpcerrorlist.MessageIdInvalidError probably on pinning a message
     except:
         logger.error(f'Was not able send the message to {peer_to_forward_to}', exc_info=True)
 
@@ -136,6 +145,11 @@ def get_last_msg_id(client: TelegramClient, channel_id):
 
 # TODO: simplify function
 def main(client: TelegramClient):
+
+    cb_recommender = ContentBasedRecommender()
+    cb_recommender.load(os.path.join(get_project_root(), 'src/recommender/'))
+    # logger.info('ContentBasedRecommender is loaded')
+
     last_channel_ids = get_last_channel_ids()
     feeds = get_feeds()  # which dst channel reads what source channels
     scr2dst = {}
@@ -204,20 +218,31 @@ def main(client: TelegramClient):
                 msg_list = messages.messages  # by default their order is descending (recent to old)
                 logger.debug(f"Found {len(msg_list)} message(s) in '{messages.chats[0].title}' ({channel_link})")
 
-                for dst_ch in dst_channel_link_list:
-                    # TODO: perform history check later wrt the dst channel and it's rb list
-                    filter_component = Filter(rule_base_check=True, history_check=True, client=client,
-                                              dst_channel=dst_ch, use_common_rules=True)
-                    messages_checked_list, filtering_details = filter_component.filter_messages(msg_list)
-                    logger.debug(f'Before filtering: {len(msg_list)}. After {len(messages_checked_list)}')
+                # TODO: Here recommender system should act and decide to which users send the content
+                for dst_ch_link in dst_channel_link_list:
+                    try:
+                        # TODO: perform history check later wrt the dst channel and it's rb list
+                        filter_component = Filter(rule_base_check=True, history_check=True, client=client,
+                                                  dst_channel=dst_ch_link, use_common_rules=True)
+                        messages_checked_list, filtering_details = filter_component.filter_messages(msg_list)
+                        logger.debug(f'Before filtering: {len(msg_list)}. After {len(messages_checked_list)}')
 
-                    asyncio.get_event_loop().run_until_complete(log_messages(client=client,
-                                                                             msg_list_before=msg_list,
-                                                                             filtering_details=filtering_details,
-                                                                             user_channel_name=dst_ch))
+                        # messages_recommended = cb_recommender.predict_proba(messages_checked_list)
+                        for msg in messages_checked_list:
+                            recommend_prob = cb_recommender.predict_proba(msg, client=client,
+                                                                          user_channel_link=dst_ch_link)
+                            logger.debug(f"Recommender probability for {dst_ch_link}: {recommend_prob:.3f}")
+
+                        asyncio.get_event_loop().run_until_complete(log_messages(client=client,
+                                                                                 msg_list_before=msg_list,
+                                                                                 filtering_details=filtering_details,
+                                                                                 user_channel_name=dst_ch_link))
+                    except:
+                        logger.error('Failed to perform message selection. Sending as they are')
+                        messages_checked_list = msg_list
 
                     forward_msgs(client=bot, peer=channel_link, msg_list=messages_checked_list,
-                                 peer_to_forward_to=dst_ch)
+                                 peer_to_forward_to=dst_ch_link)
 
                 last_msg_id = msg_list[0].id
                 last_channel_ids = update_last_channel_ids(channel_link, last_msg_id)
@@ -229,7 +254,7 @@ def main(client: TelegramClient):
                 logger.debug("\n")
 
         except Exception:
-            # TODO: proccess if channle doesn't exist. delete and notify
+            # TODO: proccess if channel doesn't exist. delete and notify
             logger.error(f"Channel {channel_link} was not processed", exc_info=True)
 
 
