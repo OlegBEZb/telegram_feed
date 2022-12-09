@@ -1,7 +1,7 @@
 [FORMAT]
 
 # Good variable names which should always be accepted, separated by a comma
-good-names=i,j,k,x,y,df,c,X,f,ls,v,d
+good-names=i,j,k,x,y,df,c,X,f,ls,v,d,ch
 
 [MESSAGES CONTROL]
 
@@ -15,4 +15,8 @@ disable=
     logging-fstring-interpolation,
     bare-except,  # remove this later
     invalid-names,
-    wrong-import-order
+    wrong-import-order,
+    wrong-import-position,
+    redefined-outer-name, # to return later
+    import-outside-toplevel,
+    ungrouped-imports  # return later

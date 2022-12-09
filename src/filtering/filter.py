@@ -7,8 +7,7 @@ from telethon.sync import TelegramClient
 from telethon.tl.types import MessageMediaDocument, MessageMediaPhoto, MessageMediaWebPage, MessageMediaPoll
 
 from src.common.utils import get_history, get_message_origins
-from src.common.database_utils import get_rb_filters
-from src import config
+from src.common.database_utils import get_rb_filters, Channel
 
 import logging
 logger = logging.getLogger(__name__)
@@ -137,13 +136,14 @@ def message_is_filtered_by_rules(msg: Message, rules_list: List[str]):
 
 
 class Filter:
-    def __init__(self, rule_base_check=True, history_check=True, client: TelegramClient=None, dst_channel=None,
+    def __init__(self, rule_base_check=True, history_check=True, client: TelegramClient=None, dst_ch: Channel = None,
                  use_common_rules=True):
         self.rule_base_check = rule_base_check
         self.use_common_rules = use_common_rules
         self.history_check = history_check
         self.client = client
-        self.dst_channel = dst_channel
+
+        self.dst_ch = dst_ch
 
         if self.rule_base_check:
             self.checkrules_list = self._get_rb_list()
@@ -152,16 +152,16 @@ class Filter:
 
         if self.history_check and (self.client is None):
             raise ValueError("If history check is performed, 'client' parameter has to be provided")
-        if self.history_check and (self.dst_channel is None):
-            raise ValueError("If history check is performed, 'dst_channel' parameter has to be provided")
+        if self.history_check and (self.dst_ch is None):
+            raise ValueError("If history check is performed, 'dst_ch' parameter has to be provided")
 
     def _get_rb_list(self, ) -> List:
         all_rules = get_rb_filters()
         rules = []
         if self.use_common_rules:
             rules += all_rules['_common_rb_list']
-        if self.dst_channel is not None:
-            rules += all_rules[self.dst_channel]  # TODO: check flatness
+        if self.dst_ch is not None:
+            rules += all_rules[str(self.dst_ch.id)]  # TODO: serialize during reading above?
         return rules
 
     def filter_messages(self, msg_list: List[Message]) -> List[Message]:
@@ -175,14 +175,14 @@ class Filter:
         msg_list_before = deepcopy(msg_list)
 
         if self.rule_base_check and self.checkrules_list != []:
-            logger.log(5, f"Performing a rule-based filtering for {self.dst_channel}")
+            logger.log(5, f"Performing a rule-based filtering for {self.dst_ch.link}")
             msg_list = self._filter(msg_list, filter_func=message_is_filtered_by_rules, rules_list=self.checkrules_list)
             filtering_details = {k.id: (None if k.id in [m.id for m in msg_list] else 'rb') for k in msg_list_before}
             msg_list_before = deepcopy(msg_list)
         if msg_list and self.history_check:
-            logger.debug(f"Performing a history filtering for {self.dst_channel}")
+            logger.debug(f"Performing a history filtering for {self.dst_ch.link}")
             # have to be more or less global and extended after every message forwarded to my channel
-            dst_channel_history = get_history(client=self.client, peer=self.dst_channel, limit=100)
+            dst_channel_history = get_history(client=self.client, peer=self.dst_ch.link, limit=100)
             dst_channel_history_messages = dst_channel_history.messages
             dst_channel_history_messages = [msg for msg in dst_channel_history_messages if msg.action is None]  # filter out channel creation, voice calls, etc.
             msg_list = self._filter(msg_list, filter_func=message_is_duplicated,
@@ -256,17 +256,16 @@ if __name__ == '__main__':
     # https://arabic-telethon.readthedocs.io/en/stable/extra/advanced-usage/mastering-telethon.html#asyncio-madness
     client = start_client('telefeed_client')
 
-    my_channel_history = get_history(client=client, peer=config.MyChannel, limit=10)
-    filtering_component = Filter(rule_base_check=True, history_check=True, client=client,
-                                 dst_channel='https://t.me/DeepStuffChannel'
-                                 )
+    # my_channel_history = get_history(client=client, peer=config.MyChannel, limit=10)
+    dst_ch = Channel(channel_link='https://t.me/DeepStuffChannel', client=client)
+    filtering_component = Filter(rule_base_check=True, history_check=True, client=client, dst_ch=dst_ch)
 
     to_filter_messages = client(GetHistoryRequest(
-        peer='https://t.me/polzaSKIDKI',  # https://t.me/DeepFaker
+        peer='https://t.me/DeepFaker',  # https://t.me/DeepFaker
         offset_id=0,
         offset_date=0,
         add_offset=0,
-        limit=10,
+        limit=50,
         max_id=0,
         min_id=0,
         hash=0

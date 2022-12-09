@@ -51,12 +51,11 @@ realisation).
 
 
 # TODOs with descending priorities
-2. Switch feeds and users to integer ids (for both users and channels)
-3. Shared util for extracting usual fields from a message. Pass already extracted features to the recommender
+1. Shared util for extracting usual fields from a message. Pass already extracted features to the recommender
    1. transactions
    2. download history with reactions
    3. recommender
-4. Per-channel content recommender
+2. Per-channel content recommender
    1. On what level to predict: message, group, sending time
    2. What content
       1. Just started. Do you like to follow [defaults]? Top 3 buttons
@@ -72,90 +71,104 @@ realisation).
       5. is a group message
          1. this group has poll, images..
       6. target: 10 - like, -1 - unread for a long time, -5 - dislike, -10 - spam
+      7. today already received num. Or incorporate the history somehow?
    4. Detect the desired amount of content per day/hour and do not recommend more (may affect the thresholds for recommender)
-   5. Filtering
-      1. Spam detection
-            1. fix Russian spam-filter bypass #промо - generate automatically combinations or normalize all texts (forever or only for filtering purposes)
-            2. ...читать продолжение… - generate automatically combinations
-            3. user is able to add/delete this him/herself
-            4. should be extendable to rexeps
-            5. Filtering rules with some level of severity
-            6. Per-channel ML trained on special spam-related reactions (this may be incorporated into recommender itself)
-               1. count vectorizer to start with?
-               2. Average URL Number per Message
-               3. Unique URL Number
-               4. domain
-               5. add feedback loop from reactions in the chat (and some time after (from user's acceptance) delete the posts 
-               marked as spam\uninteresting)
-      2. Deduplication
-         1. Check fuzzy match for long texts. May be leading in comparison to the status quo when duplicated image is enough
-         2. Fuzzy deduplication of images 
-            1. https://www.youtube.com/watch?v=f60K3njUpK4&ab_channel=ODSAIGlobal
-            2. https://www.kaggle.com/code/franckepeixoto/phash-determine-whether-2-images-are-equal-or-not/notebook
-               1. https://github.com/OlegBEZb/MemeMash/blob/main/find_similar_images.py
-   6. Examples of usage
-      1. Gif with already working bot overview
-         1. Scenario:
-            1. user has 3 channels with tons of unread messages
-            2. user joins
-            3. user creates a public channel
-            4. user adds the bot to a newly created channel
-            5. user goes to bot and adds a couple of subscriptions to a source channel
-            6. bot sends content to the user's channel
-            7. user checks new content and reacts
-      2. Gif with using the commands
-   7. Bot functionality
-       1. Remove start from menu
-       2. About to the channel about?
-       3. Create a channel for user and leave it after making the user an admin https://tl.telethon.dev/methods/channels/create_channel.html
-       4. Forward to private channels
-       5. add deletion from channel
-       6. add dynamic fetching of the handlers
-       7. Automatically send each user a notification with details when a new version of the code is merged to master
-       8. when you start resolving the list of commands after the bot was off for some time, the commands are read backwards
+3. Filtering
+   1. Spam detection
+         1. Fit a per-user model based on spam reactions
+         2. fix Russian spam-filter bypass #промо - generate automatically combinations or normalize all texts (forever or only for filtering purposes)
+         3. ...читать продолжение… - generate automatically combinations
+         4. user is able to add/delete this him/herself
+         5. should be extendable to rexeps
+         6. Filtering rules with some level of severity
+         7. Per-channel ML trained on special spam-related reactions (this may be incorporated into recommender itself)
+            1. count vectorizer to start with?
+            2. Average URL Number per Message
+            3. Unique URL Number
+            4. domain
+            5. add feedback loop from reactions in the chat (and some time after (from user's acceptance) delete the posts 
+            marked as spam\uninteresting)
+         8. Get filtering examples from another bots on github 
+   2. Deduplication
+      1. Check fuzzy match for long texts. May be leading in comparison to the status quo when duplicated image is enough
+         1. Identical texts longer than 50 symbols are quite rare... Deduplicate them regardless of the images?
+      2. Fuzzy deduplication of images 
+         1. https://www.youtube.com/watch?v=f60K3njUpK4&ab_channel=ODSAIGlobal
+         2. https://www.kaggle.com/code/franckepeixoto/phash-determine-whether-2-images-are-equal-or-not/notebook
+            1. https://github.com/OlegBEZb/MemeMash/blob/main/find_similar_images.py
+4. Examples of usage
+   1. Gif with already working bot overview
+      1. Scenario:
+         1. user has 3 channels with tons of unread messages
+         2. user joins
+         3. user creates a public channel
+         4. user adds the bot to a newly created channel
+         5. user goes to bot and adds a couple of subscriptions to a source channel
+         6. bot sends content to the user's channel
+         7. user checks new content and reacts
+   2. Gif with using the commands
+5. Bot functionality
+    4. Forward to private channels 
+    5. Remove start from menu
+    6. About to the channel about?
+    7. Create a channel for user and leave it after making the user an admin https://tl.telethon.dev/methods/channels/create_channel.html
+    8. add deletion from channel
+    9. add dynamic fetching of the handlers
+    10. Automatically send each user a notification with details when a new version of the code is merged to master
+    11. when you start resolving the list of commands after the bot was off for some time, the commands are read backwards
 for some reason
-       9. resolve dst_ch reading another dst_ch. infinite forwarding btw dst channels
-       10. /add_to_channel to be used from the channel config itself with only one argument of src_ch. Make admin check
-       11. consider a link typed in the chat as a suggestion to add it as a source somewhere. Ask "which target channel to add to"
-       12. consider adding reaction buttons
-   8. Deployment
-      1. switch to a database
-      2. database will contain user's preferences, subscription lists
-      3. dev env will have only developers' channels to be checked for some time
-   9. Statistics 
-      1. originality of content produced by source channels (which original content they steal)
-      2. "5 msg from this channel were filtered due to this and this filter. you can
+    12. resolve dst_ch reading another dst_ch. infinite forwarding btw dst channels
+    13. /add_to_channel to be used from the channel config itself with only one argument of src_ch. Make admin check
+    14. consider a link typed in the chat as a suggestion to add it as a source somewhere. Ask "which target channel to add to"
+    15. consider adding reaction buttons
+    16. add some func for conversations def conv(question, timeout) -> answer
+6. Deployment
+   1. switch to a database
+   2. database will contain user's preferences, subscription lists
+   3. dev env will have only developers' channels to be checked for some time
+7. Statistics 
+   1. originality of content produced by source channels (which original content they steal)
+   2. "5 msg from this channel were filtered due to this and this filter. you can
 still find this content via this link"
-      3. Timing, delays, potential scaling, bottlenecks
-      4. Number of users reactions + "don't forget to react to the content"
-      5. who reads posts
-   10. Add liked memes from profunctor
-   11. For ML-based spam detection and content recommendations: only admin's reactions or the whole channel's reactions
+   3. Timing, delays, potential scaling, bottlenecks
+   4. Number of users reactions + "don't forget to react to the content"
+   5. who reads posts
+8. Add liked memes from profunctor
+9. For ML-based spam detection and content recommendations: only admin's reactions or the whole channel's reactions
 are used? user's decision per channel?
-   12. deduplicate if the post covers the same news or the same model (within some period of time). 
+10. deduplicate if the post covers the same news or the same model (within some period of time). 
 Different opinions from different channels might be interesting but very similar content 
 about the same news is definitely not
-        1. text similarity?
-        2. same references used (links, channels, named entities)
-           1. if channel B refers to channel A in their post, the channel's B note may be added to the
-           channel's A repost at the end as an opinion
-        3. time of the post is more or less similar (within 24 hour or sth)
-        4. What to do with that?
-           1. First served policy
-           2. Somehow aggregate opinions from different channels via updating the first post on this topic
-           3. Take better?
-           4. use new telegram's feature called topics
-   13. If server is not available, close the session
-   14. If you are going to fetch several messages and the last one is a part of a group, the group has to be finished _get_history_
-   15. In debug mode, show what kind of post was forwarded (what media inside)
-   16. trace channel name changes (is it possible? what API says)
-   17. clean `https://t.me/profunctor_io`
-   18. create a func for deleting messages via bot
-   19. comments to the forwarded forwarded messages are sent after the actual message 
-   20. when forwarding, show the time of the original post (using API or just adding "orig time: ..." to the top)
-   21. Users list has to be updated according to the users who actually already stopped the bot or didn't add any channel
-   22. Create some structure for channel: id, link, name
-   23. If something failed, do not mark as unread
+     1. text similarity?
+     2. same references used (links, channels, named entities)
+        1. if channel B refers to channel A in their post, the channel's B note may be added to the
+        channel's A repost at the end as an opinion
+     3. time of the post is more or less similar (within 24 hour or sth)
+     4. What to do with that?
+        1. First served policy
+        2. Somehow aggregate opinions from different channels via updating the first post on this topic
+        3. Take better?
+        4. use new telegram's feature called topics
+11. If server is not available, close the session
+12. If you are going to fetch several messages and the last one is a part of a group, the group has to be finished _get_history_
+13. In debug mode, show what kind of post was forwarded (what media inside)
+14. clean `https://t.me/profunctor_io`
+15. create a func for deleting messages via bot
+16. comments to the forwarded forwarded messages are sent after the actual message 
+17. when forwarding, show the time of the original post (using API or just adding "orig time: ..." to the top)
+18. Users list has to be updated according to the users who actually already stopped the bot or didn't add any channel
+19. If something failed, do not mark as unread
+20. Tests:
+    1. channel renaming
+    2. channel deletion
+21. Add decorators
+    1. Bot used only in a personal chat
+    ```if not isinstance(event.chat, types.User):
+        await event.reply("Communication with the bot has to be performed only in direct messages, not public channels")
+        return
+    ```
+    2. Only owner can perform this action
+    3. {await get_display_name(bot_client, int(sender_id))} ({sender_id}) called /command
 
 
 # Static code analysis
@@ -203,3 +216,15 @@ with respect to the API used and requires manual patches.
 3. Great snippets were found in the following repos:
    1. https://github.com/Lonami/TelethonianBotExt/blob/master/main.py
    2. https://github.com/leomedo/pyLeader
+4. Found already existing solutions with the same name :( 
+   1. https://telefeed.readthedocs.io/
+   2. https://telegrambotting.com/tg_feed
+   3. https://github.com/hyzyla/telefeed
+5. Great intro to asyncio https://www.youtube.com/watch?v=Xbl7XjFYsN4&t=1s&ab_channel=EdgeDB. But I still do not 
+understand it
+6. Tradeoff between .session and manual cache. Telethon promises to store some cache in .session file. This file has to
+be removed before using different credentials, for example, IDs and hashes. If the identity is not in the .session file,
+then Telethon makes a request. Unfortunately, request is not performed for a pure ID. I see some reason for that like
+"it's quite difficult to obtain this ID without an API call. Therefore, this value should be already in the .session 
+file and there is no need for making a request. For this purpose I have implemented local cache for ID, name, and link 
+triples which are refreshed from time to time".

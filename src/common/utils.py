@@ -1,5 +1,5 @@
 import time
-import itertools
+from typing import Union
 from copy import deepcopy
 from pathlib import Path
 
@@ -7,7 +7,8 @@ from telethon import TelegramClient, utils as tutils
 from telethon.tl.functions.messages import GetHistoryRequest, CheckChatInviteRequest, ImportChatInviteRequest
 from telethon.tl.patched import Message
 from telethon.tl.types import MessageFwdHeader
-from telethon.errors.rpcerrorlist import ChannelPrivateError, UsernameNotOccupiedError
+from telethon.errors.rpcerrorlist import ChannelPrivateError
+from telethon.tl.types.messages import Messages, MessagesSlice, ChannelMessages, MessagesNotModified
 
 from src import config
 
@@ -22,21 +23,23 @@ def get_project_root() -> Path:
 
 
 # TODO: check that it's a link
-def check_channel_correctness(channel: str) -> str:
+def check_channel_link_correctness(channel_link: str) -> str:
     """
     Checks the correctness of the channel name
 
-    :param channel:
+    :param channel_link:
     :return:
     """
-    channel = channel.replace("@", "https://t.me/")
-    if channel.find("https://t.me/") == -1:
-        channel = channel.replace("t.me/", "https://t.me/")
-    if channel.find("https://t.me/") == -1:
+    channel_link_before = channel_link
+    channel_link = channel_link.replace("@", "https://t.me/")
+    if channel_link.find("https://t.me/") == -1:
+        channel_link = channel_link.replace("t.me/", "https://t.me/")
+    if channel_link.find("https://t.me/") == -1:
         # return "error"
-        raise ValueError(f"Channel of inappropriate format: {channel}")
+        raise ValueError(f"Channel of inappropriate format: {channel_link}")
+    logger.debug(f"Checked link: '{channel_link_before}' -> '{channel_link}'")
 
-    return channel
+    return channel_link
 
 
 def get_reactions(msg: Message):
@@ -94,9 +97,14 @@ async def get_display_name(client: TelegramClient, entity):
     return tutils.get_display_name(entity)  # works also for users' names
 
 
+# TODO: vectorize
 async def get_channel_link(client: TelegramClient, entity):
     """
-    :param client:
+    for string it makes a request, for id it only makes one there was stored access_hash in session.
+    relevant chats and users are sent with events, if you don't have it in cache, it won't make a request and
+    fail locally.
+
+    :param client: works both with bot and personal clients
     :param entity (`str` | `int` | :tl:`Peer` | :tl:`InputPeer`):
                 If a username or invite link is given, **the library will
                 use the cache**. This means that it's possible to be using
@@ -123,13 +131,25 @@ async def get_channel_link(client: TelegramClient, entity):
                 If the entity can't be found, ``ValueError`` will be raised.
     :return:
     """
-    entity = await client.get_entity(entity)
-    if hasattr(entity, 'username'):
-        # TODO: check username was None
-        return f"https://t.me/{entity.username}"
+    try:
+        # from src.bot.bot_utils import create_channel, transfer_channel_ownership
+        # user_client = TelegramClient('telefeed_client', config.api_id, config.api_hash)
+        # async with user_client:
+        #     entity = await client.get_entity(entity)
+        entity = await client.get_entity(entity)
+        if hasattr(entity, 'username'):
+            if entity.username is None:
+                logger.error(f'Channel {entity} has None .username field')
+                if entity.title is not None:
+                    return entity.title
+                else:
+                    return f"Unnamed_channel_{entity.id}"
+            return f"https://t.me/{entity.username}"
+    except:
+        logger.error(f'Unable to call client.get_entity with entity:\n{entity}', exc_info=True)
 
 
-async def get_channel_id(client: TelegramClient, entity):
+async def get_channel_id(client: TelegramClient, entity) -> int:
     """
 
     :param client:
@@ -170,18 +190,25 @@ async def get_channel_id(client: TelegramClient, entity):
     """
     # works with channel link, name, integer ID (with and without -100).
     # doesn't work with str ID
+    if entity.lstrip('-').isdigit():
+        entity = int(entity)
     entity = await client.get_input_entity(entity)
     return int('-100' + str(entity.channel_id))
 
 
+# TODO: add get_user_id?
+
+
 # TODO: extension to the end of the group
 # TODO: add limit -1 for the whole history
-def get_history(client: TelegramClient, **get_history_request_kwargs):
+def get_history(client: TelegramClient, **get_history_request_kwargs) -> Union[Messages, MessagesSlice, ChannelMessages,
+                                                                               MessagesNotModified]:
     """
     For reference: https://core.telegram.org/api/offsets.
 
     :param client:
-    :param peer: Target peer
+    :param peer: Target peer. Works well with channel link, ID. ID works only if it is registered in the .session.
+    Link is preferred.
     :param offset_id: Only return messages starting from the specified message ID
     :param offset_date: Only return messages sent before the specified date
     :param add_offset: Number of list elements to be skipped, negative values are also accepted.
@@ -235,16 +262,10 @@ def get_history(client: TelegramClient, **get_history_request_kwargs):
             messages = messages_total
         else:
             messages = client(GetHistoryRequest(**get_history_request_kwargs))
-    except ChannelPrivateError:
-        logger.error('Failed to fetch history as the channel is private or you are banned')
-        return None
-    except UsernameNotOccupiedError:
-        logger.error(f"The username {get_history_request_kwargs['peer']} is not in use by anyone else yet")
-        # TODO: remove channel from database or fetch the recent info
-    except ValueError:
-        logger.error('Failed in get_history', exc_info=True)
-        return None
-        # print(e)
+    except:
+        logger.error(f'Unknown fail in get_history. get_history_request_kwargs\n{get_history_request_kwargs}',
+                     exc_info=True)
+        raise
 
     return messages
 
@@ -323,7 +344,14 @@ def chunks(lst, n):
 
 
 def flatten_iterable(iterable):
-    return list(itertools.chain.from_iterable(iterable))
+    # import itertools
+    # return list(itertools.chain.from_iterable(iterable))
+    from collections.abc import Iterable
+    for x in iterable:
+        if isinstance(x, Iterable) and not isinstance(x, (str, bytes)):
+            yield from flatten_iterable(x)
+        else:
+            yield x
 
 
 def get_msg_media_type(msg: Message):

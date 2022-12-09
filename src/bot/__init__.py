@@ -3,6 +3,7 @@ from telethon import TelegramClient
 from src import config
 
 bot_client = TelegramClient('bot', config.api_id, config.api_hash)
+
 NO_ARG_CLI_COMMANDS = {
     # command: [button_name, help_descr]
     '/start': ["🆕 start", "Registers the users and sends the greetings message"],
