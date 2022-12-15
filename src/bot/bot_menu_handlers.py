@@ -6,7 +6,7 @@ from telethon.events import StopPropagation
 
 from src import config
 from src.bot import bot_client, NO_ARG_CLI_COMMANDS, CLI_COMMANDS
-from src.common.database_utils import Channel
+from src.common.database_utils import Channel, get_users
 from src.bot.bot_utils import add_to_channel, get_users_channel_links
 
 from src.common.utils import check_channel_link_correctness, get_display_name, chunks
@@ -135,12 +135,25 @@ async def button_channel_info(event):
         await event.reply("Communication with the bot has to be performed only in direct messages, not public channels")
         return
 
-    users_channels_links = await get_users_channel_links(event)
-    if users_channels_links is None:
-        return
-    cmd_text2data = {str(ch_link): f"/channel_info {ch_link}" for ch_link in users_channels_links}
+    # users_channels_links = await get_users_channel_links(event)
+    # if not users_channels_links:
+    #     return
+    # cmd_text2data = {str(ch_link): f"/channel_info {ch_link}" for ch_link in users_channels_links}
+    users = get_users()
+    users_channel_id_list = users[sender_id]
+    cmd_text2data = dict()
+    if len(users_channel_id_list) == 0:
+        await event.reply("You haven't added the bot to any of your channels yet")
+    else:
+        for ch_id in users_channel_id_list:
+            ch = Channel(channel_id=ch_id, client=bot_client)
+            if ch.link is None:
+                cmd_text2data[f"{ch.name} (id={ch.id})"] = f"/channel_info {ch.id}"  # may have the same name
+            else:
+                cmd_text2data[ch.link] = f"/channel_info {ch.link}"
+
     buttons = paginate_help(event, 0, cmd_text2data, "channel",
-                            shape=(len(users_channels_links), 1)
+                            shape=(len(cmd_text2data), 1)
                             )
 
     await bot_client.send_message(sender_id, "Which channel info are you interested id?", buttons=buttons)
@@ -157,7 +170,7 @@ async def button_add_to_channel(event):
         return
 
     users_channels_links = await get_users_channel_links(event)
-    if users_channels_links is None:
+    if not users_channels_links:
         return
     cmd_text2data = {str(ch): f"button_button_/add_to_channel {ch}" for ch in users_channels_links}
     buttons = paginate_help(event, 0, cmd_text2data, "channel",
@@ -180,6 +193,7 @@ async def button_button_add_to_channel(event):
     _, dst_ch_link = message.split()
     logger.debug(f"{await get_display_name(bot_client, int(sender_id))} ({sender_id}) pressed button_button_/add_to_channel with {dst_ch_link} destination channel")
 
+    # from src.bot.bot_utils import get_answer_in_conv
     async with bot_client.conversation(event.sender_id, timeout=300) as conv:
         try:
             await conv.send_message(

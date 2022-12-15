@@ -19,4 +19,8 @@ disable=
     wrong-import-position,
     redefined-outer-name, # to return later
     import-outside-toplevel,
-    ungrouped-imports  # return later
+    ungrouped-imports,  # return later
+    invalid-name,
+    unspecified-encoding,
+    use-dict-literal,
+    unused-import

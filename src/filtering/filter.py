@@ -1,4 +1,5 @@
 import asyncio
+import os
 from copy import deepcopy
 
 from typing import List
@@ -6,7 +7,7 @@ from telethon.tl.patched import Message
 from telethon.sync import TelegramClient
 from telethon.tl.types import MessageMediaDocument, MessageMediaPhoto, MessageMediaWebPage, MessageMediaPoll
 
-from src.common.utils import get_history, get_message_origins
+from src.common.utils import get_history, get_message_origins, get_project_root
 from src.common.database_utils import get_rb_filters, Channel
 
 import logging
@@ -138,6 +139,17 @@ def message_is_filtered_by_rules(msg: Message, rules_list: List[str]):
 class Filter:
     def __init__(self, rule_base_check=True, history_check=True, client: TelegramClient=None, dst_ch: Channel = None,
                  use_common_rules=True):
+        """
+
+        Parameters
+        ----------
+        rule_base_check
+        history_check
+        client : TelegramClient, default None
+            User client from the main feed. Rich client with long history helps avoiding dead queries.
+        dst_ch
+        use_common_rules
+        """
         self.rule_base_check = rule_base_check
         self.use_common_rules = use_common_rules
         self.history_check = history_check
@@ -173,6 +185,7 @@ class Filter:
         """
         # TODO: move filtering_details logic to the _filter function and mb split common/personal rb
         msg_list_before = deepcopy(msg_list)
+        len_before = len(msg_list)
 
         if self.rule_base_check and self.checkrules_list != []:
             logger.log(5, f"Performing a rule-based filtering for {self.dst_ch.link}")
@@ -180,9 +193,12 @@ class Filter:
             filtering_details = {k.id: (None if k.id in [m.id for m in msg_list] else 'rb') for k in msg_list_before}
             msg_list_before = deepcopy(msg_list)
         if msg_list and self.history_check:
-            logger.debug(f"Performing a history filtering for {self.dst_ch.link}")
+            logger.debug(f"Performing a history filtering for {self.dst_ch}")
             # have to be more or less global and extended after every message forwarded to my channel
-            dst_channel_history = get_history(client=self.client, peer=self.dst_ch.link, limit=100)
+            if self.dst_ch.is_public:
+                dst_channel_history = get_history(client=self.client, peer=self.dst_ch.link, limit=100)
+            else:
+                dst_channel_history = get_history(client=self.client, peer=self.dst_ch.id, limit=100)
             dst_channel_history_messages = dst_channel_history.messages
             dst_channel_history_messages = [msg for msg in dst_channel_history_messages if msg.action is None]  # filter out channel creation, voice calls, etc.
             msg_list = self._filter(msg_list, filter_func=message_is_duplicated,
@@ -193,6 +209,7 @@ class Filter:
             # from the prev step
             filtering_details = {k: (v if v is not None or k in [m.id for m in msg_list] else 'hist') for k, v in filtering_details.items()}
 
+        logger.debug(f'Before filtering: {len_before}. After {len(msg_list)}')
         return msg_list, filtering_details
 
     def _filter(self, msg_list: List[Message], filter_func, **filter_func_kwargs) -> List[Message]:
@@ -254,7 +271,9 @@ if __name__ == '__main__':
     from telethon.tl.functions.messages import GetHistoryRequest
 
     # https://arabic-telethon.readthedocs.io/en/stable/extra/advanced-usage/mastering-telethon.html#asyncio-madness
-    client = start_client('telefeed_client')
+    # used as main not at the same time as the main_feed.py
+    user_client_path = os.path.join(get_project_root(), 'src/telefeed_client')
+    client = start_client(user_client_path)
 
     # my_channel_history = get_history(client=client, peer=config.MyChannel, limit=10)
     dst_ch = Channel(channel_link='https://t.me/DeepStuffChannel', client=client)

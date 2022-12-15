@@ -1,7 +1,7 @@
 # grouped, pylint, json, yaml, xunit, text
 output-format: pylint
 
-strictness: high  # ‘verylow’, ‘low’, ‘medium’ (the default), ‘high’ and ‘veryhigh‘
+strictness: veryhigh  # ‘verylow’, ‘low’, ‘medium’ (the default), ‘high’ and ‘veryhigh‘
 #doc-warnings: true
 #test-warnings: false
 max-line-length: 250
@@ -34,6 +34,8 @@ mccabe:
 # Pyflakes analyzes programs and detects various errors. It is simpler and faster than pylint, but also not as thorough.
 pyflakes:
     run: true
+    disable:
+      - F401
 
 # pycodestyle is a simple tool to warn about violations of the PEP8 style guide. It produces messages for any
 # divergence from the style guide. This package used to be called pep8 but was renamed to pycodestyle to reduce

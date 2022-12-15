@@ -1,4 +1,5 @@
 import time
+import os
 from typing import Union
 from copy import deepcopy
 from pathlib import Path
@@ -55,41 +56,7 @@ def get_reactions(msg: Message):
 async def get_display_name(client: TelegramClient, entity):
     # https://stackoverflow.com/questions/61456565/how-to-get-the-chat-or-group-name-of-incoming-telegram-message-using-telethon
     """
-
-    :param client:
-    :param entity (`str` | `int` | :tl:`Peer` | :tl:`InputPeer`):
-                If a username or invite link is given, **the library will
-                use the cache**. This means that it's possible to be using
-                a username that *changed* or an old invite link (this only
-                happens if an invite link for a small group chat is used
-                after it was upgraded to a mega-group).
-
-                If the username or ID from the invite link is not found in
-                the cache, it will be fetched. The same rules apply to phone
-                numbers (``'+34 123456789'``) from people in your contact list.
-
-                If an exact name is given, it must be in the cache too. This
-                is not reliable as different people can share the same name
-                and which entity is returned is arbitrary, and should be used
-                only for quick tests.
-
-                If a positive integer ID is given, the entity will be searched
-                in cached users, chats or channels, without making any call.
-
-                If a negative integer ID is given, the entity will be searched
-                exactly as either a chat (prefixed with ``-``) or as a channel
-                (prefixed with ``-100``).
-
-                If a :tl:`Peer` is given, it will be searched exactly in the
-                cache as either a user, chat or channel.
-
-                If the given object can be turned into an input entity directly,
-                said operation will be done.
-
-                Unsupported types will raise ``TypeError``.
-
-                If the entity can't be found, ``ValueError`` will be raised.
-    :return:
+    ``client`` and ``entity`` are as documented in `get_channel_link`
     """
     # may raise telethon.errors.rpcerrorlist.ChannelPrivateError: The channel specified is private and you lack
     # permission to access it. Another reason may be that you were banned from it (caused by GetChannelsRequest)
@@ -98,13 +65,13 @@ async def get_display_name(client: TelegramClient, entity):
 
 
 # TODO: vectorize
-async def get_channel_link(client: TelegramClient, entity):
+async def get_channel_link(client: TelegramClient, entity):  # TODO: process get entity via the same func for all get_* and catch errors
     """
     for string it makes a request, for id it only makes one there was stored access_hash in session.
     relevant chats and users are sent with events, if you don't have it in cache, it won't make a request and
     fail locally.
 
-    :param client: works both with bot and personal clients
+    :param client: works both with bot and personal clients TODO check bot
     :param entity (`str` | `int` | :tl:`Peer` | :tl:`InputPeer`):
                 If a username or invite link is given, **the library will
                 use the cache**. This means that it's possible to be using
@@ -136,14 +103,13 @@ async def get_channel_link(client: TelegramClient, entity):
         # user_client = TelegramClient('telefeed_client', config.api_id, config.api_hash)
         # async with user_client:
         #     entity = await client.get_entity(entity)
-        entity = await client.get_entity(entity)
+        entity = await client.get_entity(entity)  # catch ValueError("Cannot find any entity corresponding to") for all get_*. occurs when searching by name
         if hasattr(entity, 'username'):
             if entity.username is None:
                 logger.error(f'Channel {entity} has None .username field')
                 if entity.title is not None:
                     return entity.title
-                else:
-                    return f"Unnamed_channel_{entity.id}"
+                return f"Unnamed_channel_{entity.id}"
             return f"https://t.me/{entity.username}"
     except:
         logger.error(f'Unable to call client.get_entity with entity:\n{entity}', exc_info=True)
@@ -151,45 +117,11 @@ async def get_channel_link(client: TelegramClient, entity):
 
 async def get_channel_id(client: TelegramClient, entity) -> int:
     """
-
-    :param client:
-    :param entity (`str` | `int` | :tl:`Peer` | :tl:`InputPeer`):
-                If a username or invite link is given, **the library will
-                use the cache**. This means that it's possible to be using
-                a username that *changed* or an old invite link (this only
-                happens if an invite link for a small group chat is used
-                after it was upgraded to a mega-group).
-
-                If the username or ID from the invite link is not found in
-                the cache, it will be fetched. The same rules apply to phone
-                numbers (``'+34 123456789'``) from people in your contact list.
-
-                If an exact name is given, it must be in the cache too. This
-                is not reliable as different people can share the same name
-                and which entity is returned is arbitrary, and should be used
-                only for quick tests.
-
-                If a positive integer ID is given, the entity will be searched
-                in cached users, chats or channels, without making any call.
-
-                If a negative integer ID is given, the entity will be searched
-                exactly as either a chat (prefixed with ``-``) or as a channel
-                (prefixed with ``-100``).
-
-                If a :tl:`Peer` is given, it will be searched exactly in the
-                cache as either a user, chat or channel.
-
-                If the given object can be turned into an input entity directly,
-                said operation will be done.
-
-                Unsupported types will raise ``TypeError``.
-
-                If the entity can't be found, ``ValueError`` will be raised.
-
-    :return:
+    ``client`` and ``entity`` are as documented in `get_channel_link`
     """
     # works with channel link, name, integer ID (with and without -100).
     # doesn't work with str ID
+    # only for user API
     if entity.lstrip('-').isdigit():
         entity = int(entity)
     entity = await client.get_input_entity(entity)
@@ -206,9 +138,9 @@ def get_history(client: TelegramClient, **get_history_request_kwargs) -> Union[M
     """
     For reference: https://core.telegram.org/api/offsets.
 
-    :param client:
+    :param client: only user client is accepted
     :param peer: Target peer. Works well with channel link, ID. ID works only if it is registered in the .session.
-    Link is preferred.
+    Link is preferred. For private channels ID is preferred
     :param offset_id: Only return messages starting from the specified message ID
     :param offset_date: Only return messages sent before the specified date
     :param add_offset: Number of list elements to be skipped, negative values are also accepted.
@@ -323,7 +255,7 @@ def start_client(client_name='default_client', **start_kwargs):
             logger.debug(f"Connection attempt: {connection_attempts}")
             client = TelegramClient(client_name, config.api_id, config.api_hash)
             client.start(**start_kwargs)
-            logger.debug('TelegramClient is started\n')
+            logger.debug(f'TelegramClient is started with the session file: {client_name}')
             is_not_connected = False
         except:
             connection_attempts += 1
@@ -403,3 +335,31 @@ async def extract_msg_features(msg: Message, client: TelegramClient = None, **kw
         result_dict['entities_num'] = 0
 
     return result_dict
+
+
+if __name__ == '__main__':
+    import asyncio
+
+    # used as main not at the same time as the main_feed.py
+    user_client_path = os.path.join(get_project_root(), 'src/telefeed_client')
+    client = start_client(user_client_path)
+
+    # entity = asyncio.get_event_loop().run_until_complete(client.get_entity("https://t.me/labelmedata"))
+    # entity = asyncio.get_event_loop().run_until_complete(client.get_entity(-1001389289917))
+    #
+    # entity = asyncio.get_event_loop().run_until_complete(client.get_input_entity("https://t.me/labelmedata"))
+    # entity = asyncio.get_event_loop().run_until_complete(client.get_input_entity(-1001389289917))
+    #
+    # link = asyncio.get_event_loop().run_until_complete(get_channel_link(client, -1001389289917))
+    # link = asyncio.get_event_loop().run_until_complete(get_channel_link(client, -1001466120158))
+    # print('link', link)
+    # ch_id = asyncio.get_event_loop().run_until_complete(get_channel_id(client, "https://t.me/labelmedata"))
+    # print('ch_id', ch_id)
+    # asyncio.get_event_loop().run_until_complete(client.send_message('me', 'Hello to myself!'))
+
+    res = asyncio.get_event_loop().run_until_complete(client._get_entity_from_string("https://t.me/labelmedata"))
+    # res = asyncio.get_event_loop().run_until_complete(client._get_entity_from_string("-1001389289917"))
+    res = asyncio.get_event_loop().run_until_complete(client.get_entity(-1001389289917))
+    res = asyncio.get_event_loop().run_until_complete(client.get_entity('LabelMe - DataScience blog'))
+    # res = asyncio.get_event_loop().run_until_complete(client.get_entity("+31643198671"))
+    # res = asyncio.get_event_loop().run_until_complete(client._get_entity_from_string("+31643198671"))

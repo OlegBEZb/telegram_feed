@@ -16,18 +16,23 @@ logger = logging.getLogger(__name__)
 
 async def get_users_channel_links(event):
     sender_id = event.chat_id
-    users_channels_links = None
+    users_channels_links = []
     users = get_users()
     users_channel_id_list = users[sender_id]
     if len(users_channel_id_list) == 0:
         await event.reply("You haven't added the bot to any of your channels yet")
     else:
-        users_channels_links = [Channel(channel_id=ch_id, client=bot_client).link for ch_id in users_channel_id_list]
+        for ch_id in users_channel_id_list:
+            ch = Channel(channel_id=ch_id, client=bot_client)
+            if ch.link is None:
+                users_channels_links.append(ch.name)
+            else:
+                users_channels_links.append(ch.link)
 
     return users_channels_links
 
 
-async def add_to_channel(src_ch, dst_ch, sender_id):  # TODO: add types
+async def add_to_channel(src_ch: Channel, dst_ch: Channel, sender_id):  # TODO: add types
     # TODO: add any number of channels before the last/destination one
 
     users = get_users()
@@ -72,7 +77,7 @@ async def get_answer_in_conv(event, question, timeout=300) -> str:
     sender_id = event.chat_id
     async with bot_client.conversation(event.sender_id, timeout=timeout) as conv:
         try:
-            await conv.send_message(question, buttons=Button.force_reply())
+            await conv.send_message(question, buttons=Button.force_reply())  # TODO: try single_use=True
             reply = await conv.get_reply()
             if not reply.text:
                 await event.reply("You can only set a text message!")
@@ -107,10 +112,9 @@ async def create_channel(client: TelegramClient,
 
 
 async def transfer_channel_ownership(client, channel_id, to_user_id):
-    print('asking password')
     pwd = await client(functions.account.GetPasswordRequest())
     my_srp_password = pwd_mod.compute_check(pwd, config.pass_2fa)
-    print('edit creator request')
+    logger.debug('Checked password before performing EditCreatorRequest')
     await client(functions.channels.EditCreatorRequest(
         channel=channel_id,
         user_id=to_user_id,

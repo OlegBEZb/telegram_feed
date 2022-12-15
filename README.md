@@ -96,6 +96,7 @@ realisation).
          1. https://www.youtube.com/watch?v=f60K3njUpK4&ab_channel=ODSAIGlobal
          2. https://www.kaggle.com/code/franckepeixoto/phash-determine-whether-2-images-are-equal-or-not/notebook
             1. https://github.com/OlegBEZb/MemeMash/blob/main/find_similar_images.py
+         3. data2vec
 4. Examples of usage
    1. Gif with already working bot overview
       1. Scenario:
@@ -150,18 +151,19 @@ about the same news is definitely not
         3. Take better?
         4. use new telegram's feature called topics
 11. If server is not available, close the session
-12. If you are going to fetch several messages and the last one is a part of a group, the group has to be finished _get_history_
-13. In debug mode, show what kind of post was forwarded (what media inside)
-14. clean `https://t.me/profunctor_io`
-15. create a func for deleting messages via bot
-16. comments to the forwarded forwarded messages are sent after the actual message 
-17. when forwarding, show the time of the original post (using API or just adding "orig time: ..." to the top)
-18. Users list has to be updated according to the users who actually already stopped the bot or didn't add any channel
-19. If something failed, do not mark as unread
-20. Tests:
+12. Pass Channel as a binarized argument between callbacks
+13. If you are going to fetch several messages and the last one is a part of a group, the group has to be finished _get_history_
+14. In debug mode, show what kind of post was forwarded (what media inside)
+15. clean `https://t.me/profunctor_io`
+16. create a func for deleting messages via bot
+17. comments to the forwarded forwarded messages are sent after the actual message 
+18. when forwarding, show the time of the original post (using API or just adding "orig time: ..." to the top)
+19. Users list has to be updated according to the users who actually already stopped the bot or didn't add any channel
+20. If something failed, do not mark as unread
+21. Tests:
     1. channel renaming
     2. channel deletion
-21. Add decorators
+22. Add decorators
     1. Bot used only in a personal chat
     ```if not isinstance(event.chat, types.User):
         await event.reply("Communication with the bot has to be performed only in direct messages, not public channels")
@@ -169,6 +171,11 @@ about the same news is definitely not
     ```
     2. Only owner can perform this action
     3. {await get_display_name(bot_client, int(sender_id))} ({sender_id}) called /command
+23. Fetch other social networks and blogs like medium
+24. Wrap long posts into telegraph or instant view
+25. Add translation of posts
+26. Speech2text
+27. Switch Channel to InputPeerChannel(entity_id, entity_hash) etc?
 
 
 # Static code analysis
@@ -219,12 +226,17 @@ with respect to the API used and requires manual patches.
 4. Found already existing solutions with the same name :( 
    1. https://telefeed.readthedocs.io/
    2. https://telegrambotting.com/tg_feed
-   3. https://github.com/hyzyla/telefeed
+   3. https://github.com/hyzyla/telefeed - aggregated blogs like medium
 5. Great intro to asyncio https://www.youtube.com/watch?v=Xbl7XjFYsN4&t=1s&ab_channel=EdgeDB. But I still do not 
-understand it
+understand it. This [guide](https://docs.telethon.dev/en/stable/concepts/asyncio.html#mastering-asyncio) also helped
+a lot
 6. Tradeoff between .session and manual cache. Telethon promises to store some cache in .session file. This file has to
 be removed before using different credentials, for example, IDs and hashes. If the identity is not in the .session file,
 then Telethon makes a request. Unfortunately, request is not performed for a pure ID. I see some reason for that like
 "it's quite difficult to obtain this ID without an API call. Therefore, this value should be already in the .session 
-file and there is no need for making a request. For this purpose I have implemented local cache for ID, name, and link 
-triples which are refreshed from time to time".
+file and there is no need for making a request" ([details](https://docs.telethon.dev/en/stable/concepts/sessions.html)). For this purpose I have implemented local cache for ID, name, and link 
+triples which are refreshed from time to time.
+7. Database is locked. "you should be fine as long as the session names are different and are not being reused by other scripts"
+That's out of library scope, you better make your own external session database that doesn't whine like a bitch when two processes access it, commit, and read concurrently.
+
+idk, haven't tested other telethon session storages, mainly, you don't need multiple authorization if you don't care about events. use a single authorization multiple times in StringSession mode, omit the Sqlite and .session stuff, create your own id + access hash storage. it's up to you to export the fields from objects on response, or periodically the client._entity_cache stuff

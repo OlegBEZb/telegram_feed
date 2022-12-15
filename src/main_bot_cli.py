@@ -1,3 +1,5 @@
+import os
+
 from telethon import events, types, Button, TelegramClient
 from telethon.tl.functions.channels import CheckUsernameRequest, UpdateUsernameRequest
 from telethon.tl.types import InputPeerChannel
@@ -9,10 +11,10 @@ import config
 import logging
 
 from src.bot import bot_client, CLI_COMMANDS, ADMIN_COMMANDS, START_MESSAGE, ABOUT_MESSAGE, FEEDBACK_MESSAGE
-from src.common.utils import check_channel_link_correctness, list_to_str_newline, get_display_name
+from src.common.utils import list_to_str_newline, get_display_name, get_project_root
 from src.bot.bot_utils import add_to_channel, get_answer_in_conv, get_users_channel_links
 
-from src.common.database_utils import get_users, update_user, save_users, get_feeds, Channel
+from src.common.database_utils import get_users, update_user, save_users, get_feeds, Channel, get_channels, update_channels
 
 logging.basicConfig(
     # filename="BotClient.log",
@@ -31,10 +33,17 @@ logging.getLogger('telethon').setLevel(logging.WARNING)
 from src.bot.bot_menu_handlers import command_menu
 import src.bot.admin_command_handlers
 
+# TODO: switch to context manager
 bot_client.start(bot_token=config.bot_token)
 for func, event in bot_client.list_event_handlers():
     print(func.__name__, event.Event)
 logger.info('bot started')
+
+# user_client_for_bot_cli_path = os.path.join(get_project_root(), 'src/user_client_for_bot_cli')
+user_client_for_bot_cli_path = os.path.join(get_project_root(), 'src/telefeed_client')
+user_client_for_bot_cli = TelegramClient(user_client_for_bot_cli_path,
+                                         config.api_id,
+                                         config.api_hash)  # !? has to be the same client which creates channels for private channels due to channel ID
 
 
 # needed to catch all kinds of events related to bots because for some reason these events are
@@ -45,28 +54,31 @@ logger.info('bot started')
 #     print(update.stringify())
 
 
-@bot_client.on(events.Raw(types.UpdateChannelParticipant))
-async def update_channel_participant(event):
-    channel_id = int('-100' + str(event.id))  # apply utils.get_channel_id
-    if event.new_participant:
-        # TODO: decide with chat_id types: int or str
-        if isinstance(event.new_participant,
-                      types.ChannelParticipantAdmin) and event.new_participant.user_id == config.bot_id:
-            logger.info(f"Bot is added as admin at '{channel_id}' due to '{event.actor_id}'s action")
-
-            users = get_users()
-            users = update_user(users, event.actor_id, channel_id, add_not_remove=True)
-            save_users(users)
-
-    elif event.prev_participant:
-        if isinstance(event.prev_participant,
-                      types.ChannelParticipantAdmin) and event.prev_participant.user_id == config.bot_id:
-            logger.info(f"Bot is no longer an admin at '{channel_id}' due to '{event.actor_id}'s action")
-
-            users = get_users()
-            users = update_user(users, event.actor_id, channel_id, add_not_remove=False)
-            save_users(users)
-            # TODO: remove related records from the DB (feeds, etc.)
+# TODO: find the owner of a chat and assign to him? or to every admin. and every admin will be recorded and counted
+#  if the user added the bot to a channel, this doesn't mean that it's this user's channel.
+#  for example when we add this for user
+# @bot_client.on(events.Raw(types.UpdateChannelParticipant))
+# async def update_channel_participant(event):
+#     logger.info('Triggered update_channel_participant')
+#     # TODO: resolve creator and owner of the channel
+#     channel_id = int('-100' + str(event.channel_id))  # apply utils.get_channel_id
+#     users = get_users()
+#     if event.new_participant:
+#         if isinstance(event.new_participant,
+#                       types.ChannelParticipantAdmin) and event.new_participant.user_id == config.bot_id:
+#             logger.info(f"Bot is added as admin at '{channel_id}' due to {await get_display_name(bot_client, int(event.actor_id))}({event.actor_id})'s action")
+#
+#             users = update_user(users, event.actor_id, channel_id, add_not_remove=True)
+#
+#     elif event.prev_participant:
+#         if isinstance(event.prev_participant,
+#                       types.ChannelParticipantAdmin) and event.prev_participant.user_id == config.bot_id:
+#             logger.info(f"Bot is no longer an admin at '{channel_id}' due to {await get_display_name(bot_client, int(event.actor_id))}({event.actor_id})'s action")
+#
+#             users = update_user(users, event.actor_id, channel_id, add_not_remove=False)
+#             # TODO: remove related records from the DB (feeds, etc.)
+#
+#     save_users(users)
 
 
 # TODO: find a proper way of escaping
@@ -141,7 +153,7 @@ async def command_my_channels(event):  # callback function
         return
 
     users_channels_links = await get_users_channel_links(event)
-    if users_channels_links is not None:
+    if users_channels_links:
         await event.reply(f"Your channels (sorted chronologically):\n{list_to_str_newline(users_channels_links)}")
 
     logger.debug(f"{await get_display_name(bot_client, int(sender_id))} ({sender_id}) called /my_channels")
@@ -162,12 +174,14 @@ async def command_channel_info(event):
         message = event.data.decode('utf-8')  # according to the doc
 
     try:
-        _, dst_ch_link = message.split()
-        # TODO: from the user we expect only link but in general entity is recognised from different kinds of types. The same has to be applied in channel constructor. A slightli changed but correct link will trigger cache update
-        # dst_ch_id = await get_channel_id(bot_client, dst_ch)
-        dst_ch_link = check_channel_link_correctness(dst_ch_link)
-        dst_ch = Channel(channel_link=dst_ch_link, client=bot_client)
-        dst_ch_id = dst_ch.id
+        # _, dst_ch_link = message.split()
+        # TODO: from the user we expect only link but in general entity is recognised from different kinds of types.
+        #  Private channels may be accessed only via name
+        #  The same has to be applied in channel constructor.
+        #  A slightly changed but correct link will trigger cache update
+        parsable = message[message.startswith('/channel_info') and len('/channel_info '):]
+        async with user_client_for_bot_cli:
+            dst_ch = Channel(parsable, client=user_client_for_bot_cli)
     except:
         await event.reply(
             f"Was not able to process the argument. Check /help once again:\n{CLI_COMMANDS['/channel_info'][1]}")
@@ -177,12 +191,12 @@ async def command_channel_info(event):
         return
 
     users = get_users()
-    if dst_ch_id not in users[sender_id]:
+    if dst_ch.id not in users[sender_id]:
         await event.reply("You are not allowed to perform this action")
         return
 
     feeds = get_feeds()
-    reading_list = feeds[dst_ch_id]
+    reading_list = feeds[dst_ch.id]
     if not reading_list:
         await event.reply("Your reading list is empty")
     else:
@@ -202,7 +216,6 @@ async def command_add_to_channel(event):  # callback function
         await event.reply("Communication with the bot has to be performed only in direct messages, not public channels")
         return
 
-    # TODO: change signature of add to channel. check arguments here and pass already checked to the func
     try:
         _, src_ch_link, dst_ch_link = event.message.text.split()
         dst_ch = Channel(channel_link=dst_ch_link, client=bot_client)
@@ -226,7 +239,7 @@ async def command_add_to_channel(event):  # callback function
             exc_info=True)
 
 
-# @bot_client.on(events.NewMessage(pattern='/create_channel'))
+@bot_client.on(events.NewMessage(pattern='/create_channel'))
 async def command_create_channel(event):
     sender_id = event.chat_id
     if not isinstance(event.chat, types.User):
@@ -234,12 +247,13 @@ async def command_create_channel(event):
         return
 
     users = get_users()
-    if len(users[sender_id]) > 5:
+    if len(users[sender_id]) == 5:
         await event.reply("You are not allowed to have more than 5 channels so far")
         return
 
     try:
-        new_channel_name = await get_answer_in_conv(event, "How would you like to title a channel (name visible in the dialogs)?", timeout=300)
+        new_channel_name = await get_answer_in_conv(event, "How would you like to title a channel "
+                                                           "(name visible in the dialogs)?", timeout=300)
         new_channel_about = await get_answer_in_conv(event,
                                                      "Send me the new 'About' text. People will see this text on the "
                                                      "bot's profile page and it will be sent together with a link to "
@@ -249,9 +263,8 @@ async def command_create_channel(event):
         await command_menu(event)
 
     from src.bot.bot_utils import create_channel, transfer_channel_ownership
-    user_client = TelegramClient('telefeed_client', config.api_id, config.api_hash)
-    async with user_client:
-        creation_result = await create_channel(client=user_client, channel_title=new_channel_name,
+    async with user_client_for_bot_cli:
+        creation_result = await create_channel(client=user_client_for_bot_cli, channel_title=new_channel_name,
                                                about=new_channel_about, supergroup=False)  # ask about supergroup?
 
     if creation_result.chats is None:
@@ -264,45 +277,71 @@ async def command_create_channel(event):
         new_channel_id = creation_result.chats[0].id
         new_channel_access_hash = creation_result.chats[0].access_hash
 
-        logger.info(f"New channel {new_channel_name} ({new_channel_id}) is created for {await get_display_name(bot_client, int(sender_id))} ({sender_id})")
-        while True:
+        logger.info(f"New channel '{new_channel_name}' ({new_channel_id}) is created for {await get_display_name(bot_client, int(sender_id))} ({sender_id})")
+        while True:  # TODO: reduct to some non-infinite number of attempts?
             try:
                 desired_public_name = await get_answer_in_conv(event,
                                                                "Do you want the channel to be public or private? If private, just reply to this "
                                                                "message with 'private'. If you want a public channel, then you need to reply "
-                                                               "with a desired name. This channel name will be used in https://t.me/**your_public_name** "
+                                                               "with a desired name (so-called public link). This channel name will be used in https://t.me/**your_public_name** "
                                                                "and @**your_public_name**", timeout=300)
                 if desired_public_name == 'private':
+                    new_channel_link = None
+                    await bot_client.send_message(sender_id, f"Congratulations! Private channel "
+                                                             f"'{new_channel_name}' is created")
                     break
-                async with user_client:
-                    check_channel_name_result = await user_client(CheckUsernameRequest(
+                async with user_client_for_bot_cli:
+                    check_channel_name_result = await user_client_for_bot_cli(CheckUsernameRequest(
                         InputPeerChannel(channel_id=new_channel_id,
                                          access_hash=new_channel_access_hash), desired_public_name))
                     if check_channel_name_result:
-                        update_response = await user_client(UpdateUsernameRequest(
-                            InputPeerChannel(channel_id=new_channel_id,
-                                             access_hash=new_channel_access_hash), desired_public_name))
+                        update_response = await user_client_for_bot_cli(UpdateUsernameRequest(
+                            InputPeerChannel(channel_id=new_channel_id, access_hash=new_channel_access_hash),
+                            desired_public_name))
+                        if not update_response:
+                            raise ValueError("Was not able to make the channel public")
                         logger.debug(f'{await get_display_name(bot_client, int(sender_id))} ({sender_id}) '
                                      f"created a public channel with the name 'https://t.me/{desired_public_name}'")
                         await bot_client.send_message(sender_id, f"Congratulations! Public channel "
                                                                  f"@{desired_public_name} is created")
+                        new_channel_link = f'https://t.me/{desired_public_name}'
                         break
                     else:
                         logger.debug(f'{await get_display_name(bot_client, int(sender_id))} ({sender_id}) tried to '
                                      f"create a public channel but the name '{desired_public_name}' is already taken")
                         await bot_client.send_message(sender_id, "This channel name is already taken. Try again")
             except UsernameInvalidError:
-                bot_client.send_message(sender_id, """Nobody is using this username, or the username is unacceptable. If the latter, it must match r"[a-zA-Z][\w\d]{3,30}[a-zA-Z\d]"
-                """)
+                bot_client.send_message(sender_id, "Nobody is using this username, or the username is unacceptable. "
+                                                   "If the latter, it must match r\"[a-zA-Z][\w\d]{3,30}[a-zA-Z\d]\"")
             except:
-                logger.error('Not able to parse user\'s input during channel creation', exc_info=True)
+                logger.error('Not able to parse user\'s input during public/private naming', exc_info=True)
 
-    async with user_client:
+    async with user_client_for_bot_cli:
         try:
-            await transfer_channel_ownership(client=user_client, channel_id=new_channel_id, to_user_id=sender_id)
-            # before a successful ownership transfer, the channel is still not user's but mine
-            users = update_user(users, sender_id, new_channel_id, add_not_remove=True)
+            new_channel_id = int('-100' + str(new_channel_id))
+
+            # Adding bot to the channel to be able to post to it
+            await user_client_for_bot_cli.edit_admin(entity=new_channel_id, user=config.bot_id, is_admin=True)
+            logger.info(f"Bot is added as admin at '{new_channel_id}' automatically")
+            users = update_user(users_dict=users, user=sender_id, channel_id=new_channel_id, add_not_remove=True)
             save_users(users)
+
+            # before a successful ownership transfer, the channel is still not user's but mine
+            if sender_id != config.my_id:
+                await transfer_channel_ownership(client=user_client_for_bot_cli, channel_id=new_channel_id, to_user_id=sender_id)
+
+            channels = get_channels()
+            if desired_public_name == 'private':
+                public = False
+            else:
+                public = True
+            new_ch = Channel(channel_link=new_channel_link, channel_name=new_channel_name, channel_id=new_channel_id,
+                             is_public=public)
+            update_channels(channels, new_ch)
+
+            # TODO: drop myself from the channel?
+
+            # raise StopPropagation  # to avoid calling update_channel_participant
         except SessionTooFreshError:
             logger.error('Your session has to be older than 24 hours to perform ownership transfer')
         except PasswordHashInvalidError:
@@ -320,9 +359,10 @@ async def echo_all(event):
     cmd = message.text.split()[0]
     if cmd not in dict(CLI_COMMANDS, **ADMIN_COMMANDS) and cmd != '/help':
         # await event.reply("This is an unrecognized command. Use /help to list all available commands")
-        logger.error(
-            f"User {await get_display_name(bot_client, int(sender_id))} ({sender_id}) called an unrecognized command\n{message.text}",
-            exc_info=True)
+        # logger.error(
+        #     f"User {await get_display_name(bot_client, int(sender_id))} ({sender_id}) called an unrecognized command\n{message.text}",
+        #     exc_info=True)
+        pass
 
 
 bot_client.run_until_disconnected()
