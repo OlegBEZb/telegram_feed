@@ -13,14 +13,15 @@ disable=
     import-error,
     missing-function-docstring,
     logging-fstring-interpolation,
-    bare-except,  # remove this later
     invalid-names,
     wrong-import-order,
     wrong-import-position,
-    redefined-outer-name, # to return later
     import-outside-toplevel,
-    ungrouped-imports,  # return later
     invalid-name,
     unspecified-encoding,
     use-dict-literal,
-    unused-import
+    unused-import,
+    bare-except,  # remove this later
+    redefined-outer-name, # to return later
+    ungrouped-imports,  # return later
+    anomalous-backslash-in-string  # return later
