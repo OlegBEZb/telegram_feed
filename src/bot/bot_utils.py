@@ -41,17 +41,23 @@ async def add_to_channel(src_ch: Channel, dst_ch: Channel, sender_id):  # TODO: 
                                       "You are not allowed to perform this action. Try to add the bot to your channel as admin.")
         return
     feeds = get_feeds()
+
+    if len(feeds[dst_ch.id]) > 20:
+        logger.info(f"Channel {dst_ch} faced a limit of source channels")
+        await bot_client.send_message(sender_id, "You are not allowed to have more than 20 source channel")
+        return
+
     existing_dst_channel_ids = list(feeds.keys())
     if src_ch.id in existing_dst_channel_ids or (src_ch.id == dst_ch.id):  # will not be in feeds if this is a first subscription
         # TODO: think about potential solution
         await bot_client.send_message(sender_id,
                                       "You can not add somebody's (including your) target channel as your source because of potential infinite loops")
-        logger.warning(f"{await get_display_name(bot_client, int(sender_id))} ({sender_id}) tried to add {src_ch.link} ({src_ch.id}) to {dst_ch.link} ({dst_ch.id})",
+        logger.warning(f"{await get_display_name(bot_client, int(sender_id))} ({sender_id}) tried to add {src_ch} to {dst_ch}",
                        exc_info=True)
         return
 
     if src_ch.id in feeds[dst_ch.id]:
-        logger.debug(f"Channel {src_ch.link} ({src_ch.id}) is already in subs list of {dst_ch.link} ({dst_ch.id}) channel")
+        logger.debug(f"Channel {src_ch} is already in subs list of {dst_ch} channel")
         reading_list_links = []
         for ch_id in feeds[dst_ch.id]:
             ch = Channel(channel_id=ch_id)
@@ -63,7 +69,7 @@ async def add_to_channel(src_ch: Channel, dst_ch: Channel, sender_id):  # TODO: 
     update_feed(feeds, dst_ch, src_ch, add_not_remove=True)
     save_feeds(feeds)
 
-    logger.debug(f"{await get_display_name(bot_client, int(sender_id))} ({sender_id}) added {src_ch.link} ({src_ch.id}) to {dst_ch.link} ({dst_ch.id})",
+    logger.debug(f"{await get_display_name(bot_client, int(sender_id))} ({sender_id}) added {src_ch} to {dst_ch}",
                  exc_info=True)
 
     reading_list_links = []
@@ -73,26 +79,28 @@ async def add_to_channel(src_ch: Channel, dst_ch: Channel, sender_id):  # TODO: 
     await bot_client.send_message(sender_id, f"Added! Now your reading list is the following:\n{list_to_str_newline(reading_list_links)}")
 
 
-async def get_answer_in_conv(event, question, timeout=300) -> str:
+async def get_answer_in_conv(event, question: str, timeout=300) -> str:
+    # TODO: check if event.chat_id == event.sender_id
     sender_id = event.chat_id
     async with bot_client.conversation(event.sender_id, timeout=timeout) as conv:
         try:
-            await conv.send_message(question, buttons=Button.force_reply())  # TODO: try single_use=True
+            await conv.send_message(question, buttons=Button.force_reply())
             reply = await conv.get_reply()
             if not reply.text:
-                await event.reply("You can only set a text message!")
+                await event.reply("You can only send a text message!")
                 return
 
-            await conv.send_message('Your input is received', buttons=Button.clear())
+            await conv.send_message('Your input is received', buttons=Button.clear())  # TODO: remove the messave with force reply
             # TODO: menu disappears here. return it back
         except asyncio.exceptions.TimeoutError:
             await event.reply("Timeout for the input. Please, perform the procedure once again",
-                              buttons=Button.clear())  # both do not actually clear the button
-            # await conv.send_message("Timeout for adding a source channel. Press the button once again",
-            #                         buttons=Button.clear())
-            logger.error(f"{await get_display_name(bot_client, int(sender_id))} ({sender_id}) faced a timeout in adding a source channel to add")
-            # await command_menu(event)
-            return
+                              buttons=Button.clear())  # both do not actually clear the force reply
+            # TODO: try removing the message with force_reply
+            # await event.reply("Test Button.text",
+            #                   buttons=Button.text('button text'))  # both do not actually clear the force reply
+            logger.error(f"{await get_display_name(bot_client, int(sender_id))} ({sender_id}) faced a timeout in get_answer_in_conv")  # TODO: catch outside to name properly
+            # return
+            raise
 
         return reply.text
 

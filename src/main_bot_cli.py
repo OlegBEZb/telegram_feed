@@ -1,6 +1,7 @@
+import asyncio
 import os
 
-from telethon import events, types, Button, TelegramClient
+from telethon import events, types, TelegramClient
 from telethon.tl.functions.channels import CheckUsernameRequest, UpdateUsernameRequest
 from telethon.tl.types import InputPeerChannel
 from telethon.events import StopPropagation
@@ -14,7 +15,11 @@ from src.bot import bot_client, CLI_COMMANDS, ADMIN_COMMANDS, START_MESSAGE, ABO
 from src.common.utils import list_to_str_newline, get_display_name, get_project_root
 from src.bot.bot_utils import add_to_channel, get_answer_in_conv, get_users_channel_links
 
-from src.common.database_utils import get_users, update_user, save_users, get_feeds, Channel, get_channels, update_channels
+from src.common.database_utils import (get_users, update_users, save_users, get_feeds, get_channels,
+                                       update_channels, delete_users_channel)
+from src.common.database_utils import Channel
+
+from src.common.decorators import check_direct
 
 logging.basicConfig(
     # filename="BotClient.log",
@@ -85,14 +90,9 @@ user_client_for_bot_cli = TelegramClient(user_client_for_bot_cli_path,
 @bot_client.on(events.NewMessage(pattern=CLI_COMMANDS['/help_text'][0].replace('(', '\(').replace(')', '\)')))
 @bot_client.on(events.CallbackQuery(data=b"/help_text"))
 @bot_client.on(events.NewMessage(pattern='/help_text'))
+@check_direct
 async def command_help_text(event):
     sender_id = event.chat_id
-    if not event.is_private:  # make a wrapper
-        await event.reply(
-            "Contact me in PM to get the help menu",
-            buttons=[[Button.url("Click me for help!", config.bot_url)]],
-        )
-        return
 
     help_text = "The following commands are available: \n"
     for cmd, help_descr in CLI_COMMANDS.items():  # generate help text out of the commands dictionary defined at the top
@@ -106,23 +106,21 @@ async def command_help_text(event):
     raise StopPropagation
 
 
-@bot_client.on(events.NewMessage(pattern=CLI_COMMANDS['/start'][0]))
+# @bot_client.on(events.NewMessage(pattern=CLI_COMMANDS['/start'][0]))
 @bot_client.on(events.CallbackQuery(data=b"/start"))
 # @bot_client.on(events.CallbackQuery(pattern=b"/start"))  # works as well
 # @bot_client.on(events.CallbackQuery(pattern=r"/start"))  # works as well
 @bot_client.on(events.NewMessage(pattern='/start'))
+@check_direct
 async def command_start(event):
     sender_id = event.chat_id
-    if not isinstance(event.chat, types.User):
-        await event.reply("Communication with the bot has to be performed only in direct messages, not public channels")
-        return
 
     await bot_client.send_message(sender_id, START_MESSAGE)
     users = get_users()
     if sender_id not in users:  # if user hasn't used the "/start" command yet:
         users[sender_id] = []
         save_users(users)
-        await command_menu(event)
+        await command_menu(event)  # TODO: move to be used after any result - before stop propagation
         logger.info(f"New user {await get_display_name(bot_client, int(sender_id))} ({sender_id}) started the bot")
     else:
         await bot_client.send_message(sender_id, "You are already in the user list")
@@ -130,14 +128,13 @@ async def command_start(event):
     raise StopPropagation
 
 
-@bot_client.on(events.NewMessage(pattern=CLI_COMMANDS['/about'][0]))
+# @bot_client.on(events.NewMessage(pattern=CLI_COMMANDS['/about'][0]))
 @bot_client.on(events.CallbackQuery(data=b"/about"))
 @bot_client.on(events.NewMessage(pattern='/about'))
+@check_direct
 async def command_about(event):
     sender_id = event.chat_id
-    if not isinstance(event.chat, types.User):
-        await event.reply("Communication with the bot has to be performed only in direct messages, not public channels")
-        return
+
     await bot_client.send_message(sender_id, f'{ABOUT_MESSAGE}\n\n{FEEDBACK_MESSAGE}')
     logger.debug(f"{await get_display_name(bot_client, int(sender_id))} ({sender_id}) called /about")
     raise StopPropagation
@@ -146,11 +143,9 @@ async def command_about(event):
 @bot_client.on(events.NewMessage(pattern=CLI_COMMANDS['/my_channels'][0]))
 @bot_client.on(events.CallbackQuery(data=b"/my_channels"))
 @bot_client.on(events.NewMessage(pattern='/my_channels'))
+@check_direct
 async def command_my_channels(event):  # callback function
     sender_id = event.chat_id
-    if not isinstance(event.chat, types.User):
-        await event.reply("Communication with the bot has to be performed only in direct messages, not public channels")
-        return
 
     users_channels_links = await get_users_channel_links(event)
     if users_channels_links:
@@ -162,11 +157,9 @@ async def command_my_channels(event):  # callback function
 
 @bot_client.on(events.CallbackQuery(pattern='/channel_info'))  # with argument, pattern or data makes the difference
 @bot_client.on(events.NewMessage(pattern='/channel_info'))
+@check_direct
 async def command_channel_info(event):
     sender_id = event.chat_id
-    if not isinstance(event.chat, types.User):
-        await event.reply("Communication with the bot has to be performed only in direct messages, not public channels")
-        return
 
     if isinstance(event.original_update, types.UpdateNewMessage):
         message = event.message.text
@@ -181,6 +174,7 @@ async def command_channel_info(event):
         #  A slightly changed but correct link will trigger cache update
         parsable = message[message.startswith('/channel_info') and len('/channel_info '):]
         async with user_client_for_bot_cli:
+            logger.debug(f'Trying channel_info with parsable: {parsable}')
             dst_ch = Channel(parsable, client=user_client_for_bot_cli)
     except:
         await event.reply(
@@ -210,16 +204,14 @@ async def command_channel_info(event):
 
 
 @bot_client.on(events.NewMessage(pattern='/add_to_channel'))
+@check_direct
 async def command_add_to_channel(event):  # callback function
     sender_id = event.chat_id
-    if not isinstance(event.chat, types.User):
-        await event.reply("Communication with the bot has to be performed only in direct messages, not public channels")
-        return
 
     try:
-        _, src_ch_link, dst_ch_link = event.message.text.split()
-        dst_ch = Channel(channel_link=dst_ch_link, client=bot_client)
-        src_ch = Channel(channel_link=src_ch_link, client=bot_client)
+        _, src_ch_parsable, dst_ch_parsable = event.message.text.split()
+        dst_ch = Channel(parsable=dst_ch_parsable, client=bot_client)
+        src_ch = Channel(parsable=src_ch_parsable, client=bot_client)
     except:
         await event.reply(
             f"Was not able to process the argument. Check /help once again:\n{CLI_COMMANDS['/channel_info'][1]}")
@@ -239,12 +231,12 @@ async def command_add_to_channel(event):  # callback function
             exc_info=True)
 
 
+# TODO: simplify
+@bot_client.on(events.NewMessage(pattern=CLI_COMMANDS['/create_channel'][0]))
 @bot_client.on(events.NewMessage(pattern='/create_channel'))
+@check_direct
 async def command_create_channel(event):
     sender_id = event.chat_id
-    if not isinstance(event.chat, types.User):
-        await event.reply("Communication with the bot has to be performed only in direct messages, not public channels")
-        return
 
     users = get_users()
     if len(users[sender_id]) == 5:
@@ -258,6 +250,9 @@ async def command_create_channel(event):
                                                      "Send me the new 'About' text. People will see this text on the "
                                                      "bot's profile page and it will be sent together with a link to "
                                                      "your bot when they share it with someone.", timeout=600)
+    except asyncio.exceptions.TimeoutError:
+        await command_menu(event)
+        return
     except:
         logger.error('Not able to parse user\'s input during channel creation', exc_info=True)
         await command_menu(event)
@@ -282,8 +277,8 @@ async def command_create_channel(event):
             try:
                 desired_public_name = await get_answer_in_conv(event,
                                                                "Do you want the channel to be public or private? If private, just reply to this "
-                                                               "message with 'private'. If you want a public channel, then you need to reply "
-                                                               "with a desired name (so-called public link). This channel name will be used in https://t.me/**your_public_name** "
+                                                               "message with '**private**'. If you want a public channel, then you need to reply "
+                                                               "with a desired name (so-called public link or username). This channel name will be used in https://t.me/**your_public_name** "
                                                                "and @**your_public_name**", timeout=300)
                 if desired_public_name == 'private':
                     new_channel_link = None
@@ -310,6 +305,9 @@ async def command_create_channel(event):
                         logger.debug(f'{await get_display_name(bot_client, int(sender_id))} ({sender_id}) tried to '
                                      f"create a public channel but the name '{desired_public_name}' is already taken")
                         await bot_client.send_message(sender_id, "This channel name is already taken. Try again")
+            except asyncio.exceptions.TimeoutError:
+                await command_menu(event)
+                return
             except UsernameInvalidError:
                 bot_client.send_message(sender_id, "Nobody is using this username, or the username is unacceptable. "
                                                    "If the latter, it must match r\"[a-zA-Z][\w\d]{3,30}[a-zA-Z\d]\"")
@@ -323,7 +321,7 @@ async def command_create_channel(event):
             # Adding bot to the channel to be able to post to it
             await user_client_for_bot_cli.edit_admin(entity=new_channel_id, user=config.bot_id, is_admin=True)
             logger.info(f"Bot is added as admin at '{new_channel_id}' automatically")
-            users = update_user(users_dict=users, user=sender_id, channel_id=new_channel_id, add_not_remove=True)
+            users = update_users(users_dict=users, channel_id=new_channel_id, user=sender_id, add_not_remove=True)
             save_users(users)
 
             # before a successful ownership transfer, the channel is still not user's but mine
@@ -339,7 +337,7 @@ async def command_create_channel(event):
                              is_public=public)
             update_channels(channels, new_ch)
 
-            # TODO: drop myself from the channel?
+            # TODO: drop myself from the channel ONLY if the channel is public. Otherwise history filtering is impossible
 
             # raise StopPropagation  # to avoid calling update_channel_participant
         except SessionTooFreshError:
@@ -348,6 +346,45 @@ async def command_create_channel(event):
             logger.error('Password is not working', exc_info=True)
         except PasswordTooFreshError:
             logger.error('You have just refreshed the password. One week cold period is ongoing', exc_info=True)
+
+
+@bot_client.on(events.NewMessage(pattern='/delete_channel'))
+@check_direct
+async def command_delete_channel(event):  # callback function
+    sender_id = event.chat_id
+
+    if isinstance(event.original_update, types.UpdateNewMessage):
+        message = event.message.text
+    elif isinstance(event.original_update, types.UpdateBotCallbackQuery):  # or types.UpdateBot...
+        message = event.data.decode('utf-8')  # according to the doc
+
+    try:
+        parsable = message[message.startswith('/delete_channel') and len('/delete_channel '):]
+        async with user_client_for_bot_cli:
+            target_ch = Channel(parsable=parsable, client=user_client_for_bot_cli)
+    except:
+        await event.reply(
+            f"Was not able to process the argument. Check /menu once again:\n{CLI_COMMANDS['/delete_channel'][1]}")
+        logger.error(
+            f"User {await get_display_name(bot_client, int(sender_id))} ({sender_id}) failed in command_delete_channel",
+            exc_info=True)
+        return
+
+    # TODO: open for everyone
+    if sender_id not in [config.my_id, 194124545]:
+        users = get_users()
+        if target_ch.id not in users[sender_id]:
+            await event.reply("You are not allowed to perform this action")
+            return
+
+    try:
+        await delete_users_channel(event=event, channel=target_ch, clients=[user_client_for_bot_cli, bot_client])
+    except:
+        await event.reply(
+            "Was not able to remove channel")
+        logger.error(
+            f"User {await get_display_name(bot_client, int(sender_id))} ({sender_id}) failed to perform /delete_channel with the following command: \"{message.text[:100]}\"",
+            exc_info=True)
 
 
 @bot_client.on(events.NewMessage)  # UpdateNewMessage
@@ -359,10 +396,27 @@ async def echo_all(event):
     cmd = message.text.split()[0]
     if cmd not in dict(CLI_COMMANDS, **ADMIN_COMMANDS) and cmd != '/help':
         # await event.reply("This is an unrecognized command. Use /help to list all available commands")
-        # logger.error(
-        #     f"User {await get_display_name(bot_client, int(sender_id))} ({sender_id}) called an unrecognized command\n{message.text}",
-        #     exc_info=True)
-        pass
+        if sender_id not in [config.my_id, 194124545]:
+            logger.error(
+                f"User {await get_display_name(bot_client, int(sender_id))} ({sender_id}) called an unrecognized command\n{message.text}",
+                exc_info=True)
 
+
+
+from src.bot.admin_command_handlers import send_stats
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+import tzlocal
+from apscheduler.triggers.cron import CronTrigger
+logging.getLogger('apscheduler').setLevel(logging.INFO)
+scheduler = AsyncIOScheduler(misfire_grace_time=3599, coalesce='latest', timezone=str(tzlocal.get_localzone()))  # job is allowed to be 1 hour late and if was missed for several days, will be launched once
+if not scheduler.running:  # Clause suggested by @CyrilleMODIANO
+    scheduler.start()
+scheduler.add_job(func=send_stats, trigger=CronTrigger(minute='0', hour='23', timezone=str(tzlocal.get_localzone())))
+# from apscheduler.triggers.combining import OrTrigger
+# trigger = OrTrigger([
+#    CronTrigger(hour='7', minute='30-59'),
+#    CronTrigger(hour='8-22', minute='*/2'),
+#    CronTrigger(hour='23', minute='0-30')
+# ])
 
 bot_client.run_until_disconnected()

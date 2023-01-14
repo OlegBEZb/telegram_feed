@@ -195,10 +195,13 @@ class Filter:
         if msg_list and self.history_check:
             logger.debug(f"Performing a history filtering for {self.dst_ch}")
             # have to be more or less global and extended after every message forwarded to my channel
-            if self.dst_ch.is_public:
-                dst_channel_history = get_history(client=self.client, peer=self.dst_ch.link, limit=100)
-            else:
-                dst_channel_history = get_history(client=self.client, peer=self.dst_ch.id, limit=100)
+
+            # if self.dst_ch.is_public:
+            #     dst_channel_history = get_history(client=self.client, peer=self.dst_ch.link, limit=100)
+            # else:
+            #     dst_channel_history = get_history(client=self.client, peer=self.dst_ch.id, limit=100)
+            dst_channel_history = get_history(client=self.client, peer=self.dst_ch.id, limit=100)
+
             dst_channel_history_messages = dst_channel_history.messages
             dst_channel_history_messages = [msg for msg in dst_channel_history_messages if msg.action is None]  # filter out channel creation, voice calls, etc.
             msg_list = self._filter(msg_list, filter_func=message_is_duplicated,
@@ -209,7 +212,8 @@ class Filter:
             # from the prev step
             filtering_details = {k: (v if v is not None or k in [m.id for m in msg_list] else 'hist') for k, v in filtering_details.items()}
 
-        logger.debug(f'Before filtering: {len_before}. After {len(msg_list)}')
+        if len_before != len(msg_list):
+            logger.debug(f'Before filtering: {len_before}. After: {len(msg_list)}')
         return msg_list, filtering_details
 
     def _filter(self, msg_list: List[Message], filter_func, **filter_func_kwargs) -> List[Message]:
@@ -242,8 +246,8 @@ class Filter:
                 if msg.grouped_id != to_drop_group_id:  # no group also counts
                     msg_list_filtered.append(msg)
                 else:
-                    logger.debug(
-                        f'removed an indirect spam message from to_drop group {to_drop_group_id}. To_drop message:\n{to_drop_message[:20]}')
+                    logger.log(5, f'removed an indirect spam message from to_drop group {to_drop_group_id}. '
+                                  f'To_drop message:\n{to_drop_message[:20]}')
                     to_drop_message_ids.append(msg.id)
         logger.log(5, f'to_drop_message_ids: {to_drop_message_ids}')
 

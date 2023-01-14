@@ -7,8 +7,8 @@ from pathlib import Path
 from telethon import TelegramClient, utils as tutils
 from telethon.tl.functions.messages import GetHistoryRequest, CheckChatInviteRequest, ImportChatInviteRequest
 from telethon.tl.patched import Message
-from telethon.tl.types import MessageFwdHeader
-from telethon.errors.rpcerrorlist import ChannelPrivateError
+from telethon.tl.types import MessageFwdHeader, ReactionEmoji, ReactionCustomEmoji
+from telethon.errors.rpcerrorlist import ChannelPrivateError, FloodWaitError
 from telethon.tl.types.messages import Messages, MessagesSlice, ChannelMessages, MessagesNotModified
 
 from src import config
@@ -48,7 +48,10 @@ def get_reactions(msg: Message):
         reactions = msg.reactions.results
         d = {}
         for reaction in reactions:
-            d[reaction.reaction] = reaction.count
+            if isinstance(reaction, ReactionEmoji):
+                d[reaction.reaction.emoticon] = reaction.count
+            elif isinstance(reaction, ReactionCustomEmoji):
+                d[reaction.reaction.document_id] = reaction.count
         return d
     return None
 
@@ -194,14 +197,22 @@ def get_history(client: TelegramClient, **get_history_request_kwargs) -> Union[M
             messages = messages_total
         else:
             messages = client(GetHistoryRequest(**get_history_request_kwargs))
+    except ChannelPrivateError:
+        logger.error(f'Tried to perform get_history on a private/banned channel. User client has to be a part of it. '
+                     f'get_history_request_kwargs\n{get_history_request_kwargs}')  # may be even public but your bot has to be added
+        raise
+    except FloodWaitError as e:
+        logger.info(f'Got FloodWaitError cause by GetHistoryRequest. Have to sleep {e.seconds} seconds / {e.seconds / 60:.1f} minutes / '
+                    f'{e.seconds / 60 / 60:.1f} hours\nget_history_request_kwargs\n{get_history_request_kwargs}')
+        raise
     except:
-        logger.error(f'Unknown fail in get_history. get_history_request_kwargs\n{get_history_request_kwargs}',
-                     exc_info=True)
+        logger.error(f'Unknown fail in get_history. get_history_request_kwargs\n{get_history_request_kwargs}')
         raise
 
     return messages
 
 
+# TODO: return ID rather than name
 async def get_message_origins(client: TelegramClient, msg: Message):
     try:
         if isinstance(msg.fwd_from, MessageFwdHeader):  # if message was forwarded to a place where we got it
@@ -324,6 +335,9 @@ async def extract_msg_features(msg: Message, client: TelegramClient = None, **kw
 
             result_dict['original_content'] = False
 
+        # TODO: infer original_channel_id	original_channel_link? If original_content, from src_channel, otherwise -
+        #  using Channel initialization
+
     reactions_dict = get_reactions(msg)  # may cause different amounts of fields
     if reactions_dict is not None:  # may be updated without checking if None?
         result_dict.update(reactions_dict)
@@ -357,7 +371,7 @@ if __name__ == '__main__':
     # print('ch_id', ch_id)
     # asyncio.get_event_loop().run_until_complete(client.send_message('me', 'Hello to myself!'))
 
-    res = asyncio.get_event_loop().run_until_complete(client._get_entity_from_string("https://t.me/labelmedata"))
+    # res = asyncio.get_event_loop().run_until_complete(client._get_entity_from_string("https://t.me/labelmedata"))
     # res = asyncio.get_event_loop().run_until_complete(client._get_entity_from_string("-1001389289917"))
     res = asyncio.get_event_loop().run_until_complete(client.get_entity(-1001389289917))
     res = asyncio.get_event_loop().run_until_complete(client.get_entity('LabelMe - DataScience blog'))
