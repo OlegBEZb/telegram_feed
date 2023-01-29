@@ -74,8 +74,8 @@ def message_is_duplicated(msg: Message, history_messages: List[Message], client:
         for history_msg in history_messages:
             if message_is_same(history_msg, msg):  # TODO: check the case where TypeError: 'NoneType' object is not subscriptable (approximately for history_msg)
                 # the rest of the function is for debugging purposes
-                orig_name1, orig_date1, fwd_to_name1, fwd_date1 = asyncio.get_event_loop().run_until_complete(get_message_origins(client, history_msg))
-                orig_name2, orig_date2, fwd_to_name2, fwd_date2 = asyncio.get_event_loop().run_until_complete(get_message_origins(client, msg))
+                orig_channel_id1, orig_name1, orig_date1, fwd_to_channel_id1, fwd_to_name1, fwd_date1 = asyncio.get_event_loop().run_until_complete(get_message_origins(client, history_msg))
+                orig_channel_id2, orig_name2, orig_date2, fwd_to_channel_id2, fwd_to_name2, fwd_date2 = asyncio.get_event_loop().run_until_complete(get_message_origins(client, msg))
                 if fwd_to_name1 is None:  # channel 1 has it's own post
                     if fwd_to_name2 is None:  # channel 2 has it's own post
                         if orig_date1 > orig_date2:

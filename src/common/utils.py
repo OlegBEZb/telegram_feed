@@ -56,19 +56,33 @@ def get_reactions(msg: Message):
     return None
 
 
+# TODO: process get entity via the same func for all get_* and catch errors
+async def get_entity(client, entity):
+    try:
+        entity = await client.get_entity(entity)
+        return entity
+    except ChannelPrivateError:
+        logger.error(f'Failed to get_entity with client\n{client.get_me()}\nand entity of type {type(entity)}\n{entity}')
+        # return None
+        raise
+    # TODO: catch ValueError("Could not find any entity corresponding to") for all get_*. occurs when searching by name
+
+
 async def get_display_name(client: TelegramClient, entity):
     # https://stackoverflow.com/questions/61456565/how-to-get-the-chat-or-group-name-of-incoming-telegram-message-using-telethon
     """
     ``client`` and ``entity`` are as documented in `get_channel_link`
     """
-    # may raise telethon.errors.rpcerrorlist.ChannelPrivateError: The channel specified is private and you lack
-    # permission to access it. Another reason may be that you were banned from it (caused by GetChannelsRequest)
-    entity = await client.get_entity(entity)
-    return tutils.get_display_name(entity)  # works also for users' names
+    entity = await get_entity(client, entity)
+    if entity is None:
+        return None
+    else:
+        return tutils.get_display_name(entity)  # works also for users' names
+
 
 
 # TODO: vectorize
-async def get_channel_link(client: TelegramClient, entity):  # TODO: process get entity via the same func for all get_* and catch errors
+async def get_channel_link(client: TelegramClient, entity):
     """
     for string it makes a request, for id it only makes one there was stored access_hash in session.
     relevant chats and users are sent with events, if you don't have it in cache, it won't make a request and
@@ -101,12 +115,10 @@ async def get_channel_link(client: TelegramClient, entity):  # TODO: process get
                 If the entity can't be found, ``ValueError`` will be raised.
     :return:
     """
-    try:
-        # from src.bot.bot_utils import create_channel, transfer_channel_ownership
-        # user_client = TelegramClient('telefeed_client', config.api_id, config.api_hash)
-        # async with user_client:
-        #     entity = await client.get_entity(entity)
-        entity = await client.get_entity(entity)  # catch ValueError("Cannot find any entity corresponding to") for all get_*. occurs when searching by name
+    entity = await get_entity(client, entity)
+    if entity is None:
+        return None
+    else:
         if hasattr(entity, 'username'):
             if entity.username is None:
                 logger.error(f'Channel {entity} has None .username field')
@@ -114,8 +126,6 @@ async def get_channel_link(client: TelegramClient, entity):  # TODO: process get
                     return entity.title
                 return f"Unnamed_channel_{entity.id}"
             return f"https://t.me/{entity.username}"
-    except:
-        logger.error(f'Unable to call client.get_entity with entity:\n{entity}', exc_info=True)
 
 
 async def get_channel_id(client: TelegramClient, entity) -> int:
@@ -217,29 +227,34 @@ async def get_message_origins(client: TelegramClient, msg: Message):
     try:
         if isinstance(msg.fwd_from, MessageFwdHeader):  # if message was forwarded to a place where we got it
             if msg.fwd_from.from_id is not None:
-                channel_id = msg.fwd_from.from_id.channel_id
+                orig_channel_id = int('-100' + str(msg.fwd_from.from_id.channel_id))
                 try:
-                    orig_name = await get_display_name(client, channel_id)
+                    orig_name = await get_display_name(client, orig_channel_id)
                 except ChannelPrivateError:
-                    logger.error(f'Failed to define the name of the original channel id {channel_id} because of privacy')
-                    orig_name = f'_Private_channel_{channel_id}_'
+                    logger.error(f'Failed to define the name of the original channel id {orig_channel_id} because of privacy')
+                    orig_name = f'_Private_channel_{orig_channel_id}_'  # TODO: remove this confusing state and restore via Channel
             elif msg.fwd_from.from_name is not None:
+                orig_channel_id = None
                 orig_name = msg.fwd_from.from_name
             else:
                 logger.error(f'Failed to define the origins of the message\n{msg.stringify()}')
+                orig_channel_id = None
                 orig_name = '_Undefined_'
+
             orig_date = msg.fwd_from.date
+            fwd_to_channel_id = msg.chat_id
             fwd_to_name = await get_display_name(client, msg.chat_id)
             fwd_date = msg.date
         else:  # this message is original
-            orig_name = await get_display_name(client, msg.chat_id)
             orig_date = msg.date
-            fwd_to_name, fwd_date = None, None
+            orig_name = await get_display_name(client, msg.chat_id)
+            orig_channel_id = msg.chat_id
+            fwd_to_channel_id, fwd_to_name, fwd_date = None, None, None
     except:
         logger.error(f"Failed to get source channel name and date\n{msg.stringify()}", exc_info=True)
-        return None, None, None, None
+        return None, None, None, None, None, None
 
-    return orig_name, orig_date, fwd_to_name, fwd_date
+    return orig_channel_id, orig_name, orig_date, fwd_to_channel_id, fwd_to_name, fwd_date
 
 
 def CheckCorrectlyPrivateLink(client: TelegramClient, req):
@@ -321,7 +336,8 @@ async def extract_msg_features(msg: Message, client: TelegramClient = None, **kw
         result_dict['grouped'] = True
 
     if client is not None:
-        orig_name, orig_date, fwd_to_name, fwd_date = await get_message_origins(client, msg)
+        orig_channel_id, orig_name, orig_date, fwd_to_channel_id, fwd_to_name, fwd_date = await get_message_origins(client, msg)
+
         result_dict['original_channel_name'] = orig_name
         result_dict['original_post_timestamp'] = orig_date  # TODO: add difference with the time of processing
         if fwd_to_name is None:

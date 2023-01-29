@@ -45,15 +45,16 @@ class Channel:
     Otherwise, the channel will be with missed values.
     """
     def __init__(self, parsable=None, channel_id=None, channel_name=None, channel_link=None,
-                 is_public=True, restore_values=True, client=None):
+                 is_public=True, restore_values=True, force_update=False, client=None):
 
         self._client = client
         self.id = channel_id
         self.name = channel_name
         self.link = channel_link  # consider a list of links? invite vs channel?
         self.input_entity = None  # TODO: maybe initialize from input? Are there cases to pass it?
-        self.is_public = is_public  # TODO: switch to None?
+        self.is_public = is_public  # TODO: switch to None?  # TODO: check the default value of is_public. Should not be True
         self.restore_values = restore_values
+        self.force_update = force_update
 
         if parsable:
             # TODO: here entity may be already in the cache but of not known type (ID, link)
@@ -78,12 +79,17 @@ class Channel:
 
         if restore_values:
             if self.id is None or self.name is None or (self.link is None and self.is_public):
+                # old values may still be useful. Example: we knew link and ID but session got lost. The session can
+                # be refreshed if link is still working
                 self._restore_from_cache()
+
 
             # TODO: maybe launch once in a while to refresh values if there are remaining calls for today?
             # TODO: let get_entity work with any input and extract id, link and name after?
             # TODO: optimize
-            if self.id is None or self.name is None or (self.link is None and self.is_public):
+            # TODO: add 'update_date' to the storage
+            if self.force_update or self.id is None or self.name is None or (self.link is None and self.is_public):
+                logger.info(f'Performing a force update for {self.__repr__()}')
                 if self.input_entity or parsable:  # perform request using parsable/input entity (a bit better than call everything from scratch)
                     if self.input_entity:
                         entity = self.input_entity
@@ -193,28 +199,32 @@ class Channel:
             self.is_public = cached_channel.is_public  # we may not know if the channel if public knowing only fragments
         logger.log(5, f"Restored {self} from cache")
 
-    def _update_via_request(self):  # TODO: has to be used in a force way for update
+    # TODO: rewrite. make one long request and extract values
+    def _update_via_request(self):
         """
         For public channel, restores link via ID and vice versa, and name via ID afterwards. For private, only
         name via ID
 
         Only use client.get_entity() if you need to get actual information, like the username, name, title, etc. of the entity.
+        If the recent info is needed, search couldn't be performed via ID
 
         :return:
         """
         if self._client is None:
-            raise ValueError(f'TelegramClient has to be passed to perform _update_via_request. Having {self._client}')
+            raise ValueError(f'TelegramClient has to be passed to perform _update_via_request. {self.__repr__()}')
         from src.common.utils import get_channel_id, get_display_name, get_channel_link
 
         try:
-            if self.is_public:  # TODO: check the default value of is_public. Should not be true
+            if self.is_public:  # public channels have links
                 if self.link is None:
-                    self.link = asyncio.get_event_loop().run_until_complete(get_channel_link(self._client, self.id))
+                    self.link = asyncio.get_event_loop().run_until_complete(get_channel_link(self._client, self.id))  # may fail in case of unk channel
                 else:
                     self.link = check_channel_link_correctness(self.link)
                     self.id = asyncio.get_event_loop().run_until_complete(get_channel_id(self._client, self.link))
 
-            self.name = asyncio.get_event_loop().run_until_complete(get_display_name(self._client, self.id))
+            # self.name = asyncio.get_event_loop().run_until_complete(get_display_name(self._client, self.id))
+            if self.link is not None:
+                self.name = asyncio.get_event_loop().run_until_complete(get_display_name(self._client, self.link))
 
             logger.info(f"Restored {self} via request")
             channels = get_channels(restore_values=False)
@@ -230,8 +240,14 @@ class Channel:
         return False
 
     def __str__(self):
-        # TODO: consider something more readable
-        return f"""Channel(id={self.id}, name="{self.name}", link="{self.link}", public={self.is_public})"""
+        # TODO: consider something more readable. To show to user?
+        # return f"""Channel(id={self.id}, name="{self.name}", link="{self.link}", public={self.is_public})"""
+        if self.link is not None:
+            return self.link.replace('https://t.me/', '@')
+        elif self.name is not None:
+            return self.name
+        else:
+            return str(self.id)
 
     def __repr__(self):
         return f"""Channel(id={self.id}, name="{self.name}", link="{self.link}", public={self.is_public})"""
