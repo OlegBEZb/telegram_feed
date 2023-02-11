@@ -1,5 +1,6 @@
 import asyncio
 import os
+import re
 from copy import deepcopy
 
 from typing import List
@@ -12,6 +13,8 @@ from src.common.database_utils import get_rb_filters, Channel
 
 import logging
 logger = logging.getLogger(__name__)
+
+HTML_pattern = re.compile('<.*?>|&([a-z0-9]+|#[0-9]{1,6}|#x[0-9a-f]{1,6});')
 
 
 def media_is_duplicated(m1, m2):
@@ -138,7 +141,7 @@ def message_is_filtered_by_rules(msg: Message, rules_list: List[str]):
 
 class Filter:
     def __init__(self, rule_base_check=True, history_check=True, client: TelegramClient=None, dst_ch: Channel = None,
-                 use_common_rules=True):
+                 use_common_rules=True, postfix_template_to_ignore=None):
         """
 
         Parameters
@@ -154,8 +157,9 @@ class Filter:
         self.use_common_rules = use_common_rules
         self.history_check = history_check
         self.client = client
-
         self.dst_ch = dst_ch
+        self.postfix_re_pattern_to_ignore = self._postfix_template2pattern(postfix_template_to_ignore)
+        # TODO: apart from adapting text, we need to remove the entities we added...
 
         if self.rule_base_check:
             self.checkrules_list = self._get_rb_list()
@@ -166,6 +170,33 @@ class Filter:
             raise ValueError("If history check is performed, 'client' parameter has to be provided")
         if self.history_check and (self.dst_ch is None):
             raise ValueError("If history check is performed, 'dst_ch' parameter has to be provided")
+
+    @staticmethod
+    def _postfix_template2pattern(postfix_template_to_ignore):
+        if postfix_template_to_ignore is None:
+            return None
+
+        def cleanhtml(raw_html):
+            cleantext = re.sub(HTML_pattern, '', raw_html)
+            return cleantext
+
+        template = cleanhtml(postfix_template_to_ignore)
+        pattern = re.sub(r"\{.*?\}", r".*", template)
+        return pattern
+
+    def _remove_postfix(self, msg: Message):
+        if self.postfix_re_pattern_to_ignore is None:
+            return msg
+        message_postfix_match = re.search(self.postfix_re_pattern_to_ignore, msg.message)
+        if message_postfix_match:
+            new_msg = deepcopy(msg)
+            new_msg.message = re.sub(self.postfix_re_pattern_to_ignore, '', new_msg.message)  # remove end of text
+            new_msg.entities = [e for e in new_msg.entities if e.offset < message_postfix_match.start()]  # TODO: check border
+            if len(new_msg.entities) == 0:
+                new_msg.entities = None
+            return new_msg
+        else:
+            return msg
 
     def _get_rb_list(self, ) -> List:
         all_rules = get_rb_filters()
@@ -188,12 +219,12 @@ class Filter:
         len_before = len(msg_list)
 
         if self.rule_base_check and self.checkrules_list != []:
-            logger.log(5, f"Performing a rule-based filtering for {self.dst_ch.link}")
+            logger.log(5, f"Performing a rule-based filtering for {self.dst_ch!r}")
             msg_list = self._filter(msg_list, filter_func=message_is_filtered_by_rules, rules_list=self.checkrules_list)
             filtering_details = {k.id: (None if k.id in [m.id for m in msg_list] else 'rb') for k in msg_list_before}
             msg_list_before = deepcopy(msg_list)
         if msg_list and self.history_check:
-            logger.debug(f"Performing a history filtering for {self.dst_ch}")
+            logger.debug(f"Performing a history filtering for {self.dst_ch!r}")
             # have to be more or less global and extended after every message forwarded to my channel
 
             # if self.dst_ch.is_public:
@@ -204,6 +235,7 @@ class Filter:
 
             dst_channel_history_messages = dst_channel_history.messages
             dst_channel_history_messages = [msg for msg in dst_channel_history_messages if msg.action is None]  # filter out channel creation, voice calls, etc.
+            dst_channel_history_messages = [self._remove_postfix(msg) for msg in dst_channel_history_messages]
             msg_list = self._filter(msg_list, filter_func=message_is_duplicated,
                                     history_messages=dst_channel_history_messages,
                                     client=self.client)

@@ -25,3 +25,40 @@ disable=
     redefined-outer-name, # to return later
     ungrouped-imports,  # return later
     anomalous-backslash-in-string  # return later
+
+enable=
+    #classes,
+    design,
+    #exceptions,
+    #format,
+    #logging,
+    #method_args,
+    #typecheck,
+    #string,
+    refactoring,
+    similarities,
+    #variables
+
+
+[DESIGN]
+
+max-args=7
+max-locals=20
+
+
+[SIMILARITIES]
+
+# Minimum lines number of a similarity.
+min-similarity-lines=1
+
+# Ignore comments when computing similarities.
+ignore-comments=no
+
+# Ignore docstrings when computing similarities.
+ignore-docstrings=no
+
+# Ignore imports when computing similarities.
+ignore-imports=no
+
+# Signatures are removed from the similarity computation
+ignore-signatures=no

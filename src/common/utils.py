@@ -62,12 +62,13 @@ async def get_entity(client, entity):
         entity = await client.get_entity(entity)
         return entity
     except ChannelPrivateError:
-        logger.error(f'Failed to get_entity with client\n{client.get_me()}\nand entity of type {type(entity)}\n{entity}')
-        # return None
-        raise
+        logger.error(f'Failed to get_entity with client\n{await client.get_me()}\nand entity of type {type(entity)}\n{entity}')
+        return None
+        # raise
     # TODO: catch ValueError("Could not find any entity corresponding to") for all get_*. occurs when searching by name
 
 
+# TOOD: replace empty to None?
 async def get_display_name(client: TelegramClient, entity):
     # https://stackoverflow.com/questions/61456565/how-to-get-the-chat-or-group-name-of-incoming-telegram-message-using-telethon
     """
@@ -122,9 +123,7 @@ async def get_channel_link(client: TelegramClient, entity):
         if hasattr(entity, 'username'):
             if entity.username is None:
                 logger.error(f'Channel {entity} has None .username field')
-                if entity.title is not None:
-                    return entity.title
-                return f"Unnamed_channel_{entity.id}"
+                return None
             return f"https://t.me/{entity.username}"
 
 
@@ -135,7 +134,7 @@ async def get_channel_id(client: TelegramClient, entity) -> int:
     # works with channel link, name, integer ID (with and without -100).
     # doesn't work with str ID
     # only for user API
-    if entity.lstrip('-').isdigit():
+    if isinstance(entity, str) and entity.lstrip('-').isdigit():
         entity = int(entity)
     entity = await client.get_input_entity(entity)
     return int('-100' + str(entity.channel_id))
@@ -146,6 +145,7 @@ async def get_channel_id(client: TelegramClient, entity) -> int:
 
 # TODO: extension to the end of the group
 # TODO: add limit -1 for the whole history
+# TODO: migrate to .get_messages()
 def get_history(client: TelegramClient, **get_history_request_kwargs) -> Union[Messages, MessagesSlice, ChannelMessages,
                                                                                MessagesNotModified]:
     """
