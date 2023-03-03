@@ -9,7 +9,6 @@ from telethon.tl.functions.messages import GetHistoryRequest, CheckChatInviteReq
 from telethon.tl.patched import Message
 from telethon.tl.types import MessageFwdHeader, ReactionEmoji, ReactionCustomEmoji
 from telethon.errors.rpcerrorlist import ChannelPrivateError, FloodWaitError
-from telethon.tl.types.messages import Messages, MessagesSlice, ChannelMessages, MessagesNotModified
 
 from src import config
 
@@ -62,24 +61,29 @@ async def get_entity(client, entity):
         entity = await client.get_entity(entity)
         return entity
     except ChannelPrivateError:
+        logger.error(
+            f'Failed to get_entity due to ChannelPrivateError')
+        return None
+    except:
         logger.error(f'Failed to get_entity with client\n{await client.get_me()}\nand entity of type {type(entity)}\n{entity}')
         return None
         # raise
     # TODO: catch ValueError("Could not find any entity corresponding to") for all get_*. occurs when searching by name
 
 
-# TOOD: replace empty to None?
+# TODO: replace empty to None?
+# TODO: try to call the func only from Channel - this gives a chance to restore
 async def get_display_name(client: TelegramClient, entity):
     # https://stackoverflow.com/questions/61456565/how-to-get-the-chat-or-group-name-of-incoming-telegram-message-using-telethon
     """
     ``client`` and ``entity`` are as documented in `get_channel_link`
     """
+    # logger.debug('Getting entity in get_display_name')
     entity = await get_entity(client, entity)
     if entity is None:
         return None
     else:
         return tutils.get_display_name(entity)  # works also for users' names
-
 
 
 # TODO: vectorize
@@ -116,6 +120,7 @@ async def get_channel_link(client: TelegramClient, entity):
                 If the entity can't be found, ``ValueError`` will be raised.
     :return:
     """
+    logger.debug('Getting entity in get_channel_link')
     entity = await get_entity(client, entity)
     if entity is None:
         return None
@@ -136,6 +141,7 @@ async def get_channel_id(client: TelegramClient, entity) -> int:
     # only for user API
     if isinstance(entity, str) and entity.lstrip('-').isdigit():
         entity = int(entity)
+    logger.debug('Getting input entity in get_channel_id')
     entity = await client.get_input_entity(entity)
     return int('-100' + str(entity.channel_id))
 
@@ -143,17 +149,15 @@ async def get_channel_id(client: TelegramClient, entity) -> int:
 # TODO: add get_user_id?
 
 
-# TODO: extension to the end of the group
+# TODO: extension to the end of the group. https://stackoverflow.com/questions/74084075/telethon-or-pyrogram-forward-whole-album-instead-of-last-media-without-caption
 # TODO: add limit -1 for the whole history
 # TODO: migrate to .get_messages()
-def get_history(client: TelegramClient, **get_history_request_kwargs) -> Union[Messages, MessagesSlice, ChannelMessages,
-                                                                               MessagesNotModified]:
+async def get_history(client: TelegramClient, **get_history_request_kwargs) -> 'hints.TotalList':
     """
     For reference: https://core.telegram.org/api/offsets.
 
     :param client: only user client is accepted
-    :param peer: Target peer. Works well with channel link, ID. ID works only if it is registered in the .session.
-    Link is preferred. For private channels ID is preferred
+    :param entity: Target peer. Works well with channel link, ID. ID works only if it is registered in the .session.
     :param offset_id: Only return messages starting from the specified message ID
     :param offset_date: Only return messages sent before the specified date
     :param add_offset: Number of list elements to be skipped, negative values are also accepted.
@@ -163,50 +167,16 @@ def get_history(client: TelegramClient, **get_history_request_kwargs) -> Union[M
     max_id
     :param min_id: 	If a positive value was transferred, the method will return only messages with IDs more than
     min_id
-    :param hash: Result hash
 
-    :returns messages.Messages: Instance of either Messages, MessagesSlice, ChannelMessages, MessagesNotModified.
     """
     get_history_default = {'offset_id': 0, 'offset_date': 0,
                            'add_offset': 0, 'limit': 1,
-                           'max_id': 0, 'min_id': 0,
-                           'hash': 0}  # min and max ids 0 or -1?
+                           'max_id': 0, 'min_id': 0}  # min and max ids 0 or -1?
     # the dict on the right takes precedence
     get_history_request_kwargs = get_history_default | get_history_request_kwargs
 
     try:
-        if get_history_request_kwargs['limit'] > 100:
-            print('downloading by chunks')
-            # messages = get_long_history(client, peer, min_id, limit)
-            partial_kwargs = deepcopy(get_history_request_kwargs)
-            moving_max_id = get_history_request_kwargs['max_id']  # starting from the original ceiling
-            limit = get_history_request_kwargs['limit']
-            messages_total = None
-            while True:
-                partial_kwargs['offset_id'] = moving_max_id
-                partial_kwargs['limit'] = min(100, limit)
-
-                messages = client(GetHistoryRequest(**partial_kwargs))
-                if messages_total is None:
-                    messages_total = messages
-                else:
-                    # messages and chats users to flat
-                    messages_total.messages += messages.messages
-                    messages_total.chats += [c for c in messages.chats if c not in messages_total.chats]
-                    messages_total.users += [c for c in messages.users if c not in messages_total.users]
-                dumped_num = len(messages.messages)
-                print('dumped', dumped_num, 'more messages')
-                print('total', len(messages_total.messages))
-
-                limit -= dumped_num
-                if dumped_num < 100 or limit == 0:
-                    break
-                moving_max_id = min(msg.id for msg in messages.messages)
-
-                time.sleep(1)
-            messages = messages_total
-        else:
-            messages = client(GetHistoryRequest(**get_history_request_kwargs))
+        messages = await client.get_messages(**get_history_request_kwargs)
     except ChannelPrivateError:
         logger.error(f'Tried to perform get_history on a private/banned channel. User client has to be a part of it. '
                      f'get_history_request_kwargs\n{get_history_request_kwargs}')  # may be even public but your bot has to be added
@@ -222,7 +192,7 @@ def get_history(client: TelegramClient, **get_history_request_kwargs) -> Union[M
     return messages
 
 
-# TODO: return ID rather than name
+# TODO: not use name here at all. Only ID. Everything else is to be found by Channel
 async def get_message_origins(client: TelegramClient, msg: Message):
     try:
         if isinstance(msg.fwd_from, MessageFwdHeader):  # if message was forwarded to a place where we got it
@@ -231,8 +201,10 @@ async def get_message_origins(client: TelegramClient, msg: Message):
                 try:
                     orig_name = await get_display_name(client, orig_channel_id)
                 except ChannelPrivateError:
-                    logger.error(f'Failed to define the name of the original channel id {orig_channel_id} because of privacy')
+                    logger.error(f'Failed to define the name of the original channel id {orig_channel_id} because of privacy')  # is not happen as captured in get_entity
                     orig_name = f'_Private_channel_{orig_channel_id}_'  # TODO: remove this confusing state and restore via Channel
+                # orig_channel = Channel(channel_id=orig_channel_id, client=client)  # doesn't work due to circular import
+                # orig_name = orig_channel.name
             elif msg.fwd_from.from_name is not None:
                 orig_channel_id = None
                 orig_name = msg.fwd_from.from_name
@@ -373,6 +345,9 @@ if __name__ == '__main__':
     # used as main not at the same time as the main_feed.py
     user_client_path = os.path.join(get_project_root(), 'src/telefeed_client')
     client = start_client(user_client_path)
+
+    messages = asyncio.get_event_loop().run_until_complete(
+        get_history(client=client, min_id=68326-10, entity=-1001099860397, limit=30))
 
     # entity = asyncio.get_event_loop().run_until_complete(client.get_entity("https://t.me/labelmedata"))
     # entity = asyncio.get_event_loop().run_until_complete(client.get_entity(-1001389289917))

@@ -33,6 +33,7 @@ logger = logging.getLogger(__name__)
 USERS_FILEPATH = "src/data/users.json"
 FEEDS_FILEPATH = "src/data/feeds.json"
 LAST_CHANNEL_MESSAGE_ID_FILEPATH = 'src/data/last_channel_message_id.json'
+LAST_BOT_MESSAGE_ID_FILEPATH = 'src/data/last_bot_message_id.json'
 RB_FILTER_LISTS_FILEPATH = 'src/data/rule_based_filter_lists.json'
 TRANSACTIONS_FILEPATH = 'src/data/transactions.csv'
 CHANNEL_CACHE_FILEPATH = 'src/data/channels_cache.json'
@@ -73,6 +74,7 @@ class Channel:
                 self.id = int('-100' + str(self.input_entity.channel_id))
                 logger.debug(f'Inferred input entity {self.input_entity} from parsable {self.parsable}')
             except ValueError:
+                # TODO: if there is nothing after parseable and we do not know what is the type of parseable, below will fail
                 pass
 
         if restore_values:
@@ -247,6 +249,27 @@ class Channel:
 
     def __hash__(self):
         return hash(self.id)
+
+
+def get_last_bot_id():
+    root = get_project_root()
+    path = os.path.join(root, LAST_BOT_MESSAGE_ID_FILEPATH)
+
+    if os.path.exists(path):
+        with open(path, 'r', encoding='utf-8-sig') as f:
+            data = json.load(f)
+    else:
+        data = 410
+    return data
+
+
+def save_last_bot_ids(value: int):
+    root = get_project_root()
+    path = os.path.join(root, LAST_BOT_MESSAGE_ID_FILEPATH)
+
+    with open(path, 'w') as f:
+        json.dump(value, f)
+    logger.log(5, 'saved updated bot message ids')
 
 
 def get_last_channel_ids():
@@ -618,8 +641,8 @@ if __name__ == '__main__':
     # to try with a pure session like if a new user laucnes it
     # client = start_client('database_utils_user_client')
     # used as main not at the same time as the main_feed.py
-    # client_path = os.path.join(get_project_root(), 'src/telefeed_client')
-    client_path = os.path.join(get_project_root(), f'src/bot_for_feed_{config.bot_id}')
+    client_path = os.path.join(get_project_root(), 'src/telefeed_client')
+    # client_path = os.path.join(get_project_root(), f'src/bot_for_feed_{config.bot_id}')
     client = TelegramClient(client_path, config.api_id, config.api_hash)
 
     # ch = Channel(channel_id=-1001809422952)
@@ -631,7 +654,9 @@ if __name__ == '__main__':
         # input_entity = Channel.get_input_entity_offline(client=client, peer="https://t.me/durov")
         # ch2 = Channel(parsable="-1001668629777", client=client, restore_values=True, force_update=True)
 
-        ch3 = Channel(parsable="https://t.me/sansara_channel", client=client, restore_values=True, force_update=True)
+        # ch3 = Channel(parsable="https://t.me/sansara_channel", client=client, restore_values=True, force_update=True)
+        ch3 = Channel(channel_id=-1001177342537, client=client, restore_values=True, force_update=True)
+        # ch4 = Channel(parsable="-1001180675167", client=client, restore_values=True, force_update=True)
 
         # chat_entity = client.get_entity("https://t.me/some_private_link")
         # result = client(GetFullChannelRequest(channel=chat_entity))

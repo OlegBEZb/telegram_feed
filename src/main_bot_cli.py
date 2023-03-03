@@ -393,13 +393,14 @@ async def echo_all(event):
     if not isinstance(event.chat, types.User):
         return
     message = event.message
-    cmd = message.text.split()[0]
-    if cmd not in dict(CLI_COMMANDS, **ADMIN_COMMANDS) and cmd != '/help':
-        # await event.reply("This is an unrecognized command. Use /help to list all available commands")
-        if sender_id not in [config.my_id, 194124545]:
-            logger.error(
-                f"User {await get_display_name(bot_client, int(sender_id))} ({sender_id}) called an unrecognized command\n{message.text}",
-                exc_info=True)
+    if len(message.text) > 0:
+        cmd = message.text.split()[0]
+        if cmd not in dict(CLI_COMMANDS, **ADMIN_COMMANDS) and cmd != '/help':
+            # await event.reply("This is an unrecognized command. Use /help to list all available commands")
+            if sender_id not in [config.my_id, 194124545]:
+                logger.error(
+                    f"User {await get_display_name(bot_client, int(sender_id))} ({sender_id}) called an unrecognized command\n{message.text}",
+                    exc_info=True)
 
 
 

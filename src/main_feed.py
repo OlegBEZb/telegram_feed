@@ -1,10 +1,8 @@
 import asyncio
 import os
 import argparse
-from copy import deepcopy
-
 from random import randint
-
+from copy import deepcopy
 import time
 
 import logging
@@ -13,15 +11,17 @@ from typing import List
 
 from telethon import TelegramClient
 from telethon.tl.types import TypeInputPeer, MessageActionGroupCall, MessageActionPinMessage
+from telethon.tl.types import MessageMediaWebPage, WebPage, WebPageEmpty
 from telethon.tl.patched import Message
 from telethon.tl.functions.messages import GetPeerDialogsRequest, ForwardMessagesRequest
 from telethon.errors import (ChannelPrivateError, UsernameNotOccupiedError, MessageIdInvalidError, FloodWaitError,
-                             ChatAdminRequiredError, ChatWriteForbiddenError, ChannelInvalidError)
+                             ChatAdminRequiredError, ChatWriteForbiddenError, ChannelInvalidError, MediaEmptyError)
 from telethon.extensions import html
 
 
 from src.common.utils import get_history, get_project_root, get_message_origins, get_entity
-from src.common.database_utils import (get_last_channel_ids, update_last_channel_ids, get_feeds, log_messages,
+from src.common.database_utils import (get_last_channel_ids, get_last_bot_id, save_last_bot_ids,
+                                       update_last_channel_ids, get_feeds, log_messages,
                                        invert_feeds)
 from src.common.database_utils import Channel
 
@@ -49,10 +49,13 @@ def send_group_if_non_empty(msg_list: List[Message], bot_client: TelegramClient,
             logger.log(5, f'Sending {len(msg_list)} non-grouped message(s) to {peer_to_forward_to}')
 
         try:
-            if send_not_forward and all(m.media is None for m in msg_list):  # as original. TODO: remove the second part
+            # if send_not_forward and all(m.media is None for m in msg_list):  # as original. TODO: remove the second part
+            if send_not_forward and (last_grouped_id is None):  # TODO: remove the second part
             # if send_not_forward:  # as original
-                asyncio.get_event_loop().run_until_complete(send_msg_list(msg_list=msg_list, bot_client=bot_client, peer_to_forward_to=peer_to_forward_to,
-                              user_client=user_client))
+                asyncio.get_event_loop().run_until_complete(send_msg_list(msg_list=msg_list, bot_client=bot_client,
+                                                                          peer_to_forward_to=peer_to_forward_to,
+                                                                          last_grouped_id=last_grouped_id,
+                                                                          user_client=user_client))
             else:  # old option/regular forward
                 forward_msg_by_id_list(client=bot_client, peer=from_peer, msg_ids_to_forward=[m.id for m in msg_list],
                                        peer_to_forward_to=peer_to_forward_to)
@@ -81,7 +84,7 @@ def send_group_if_non_empty(msg_list: List[Message], bot_client: TelegramClient,
     return msg_list
 
 
-def format_forwarded_msg_as_original(msg: Message, client: TelegramClient) -> Message:
+def format_forwarded_msg_as_original(msg: Message, orig_channel: Channel, original_msg_id) -> Message:
     """
     Format a forwarded message as if it was sent from the original channel
 
@@ -89,8 +92,6 @@ def format_forwarded_msg_as_original(msg: Message, client: TelegramClient) -> Me
     ----------
      msg : `Message`
         The message to be formatted
-    client : `TelegramClient`
-        The telegram client object
 
     Returns
     -------
@@ -98,16 +99,16 @@ def format_forwarded_msg_as_original(msg: Message, client: TelegramClient) -> Me
         The message object after formatting as if it was sent from the original channel
 
     """
-    orig_channel_id, orig_name, orig_date, fwd_to_channel_id, fwd_to_name, fwd_date = asyncio.get_event_loop().run_until_complete(
-        get_message_origins(client, msg))
-    orig_channel = Channel(channel_id=orig_channel_id, channel_name=orig_name, client=client)
+    # without that copying doesn't work
+    msg._client = None
+    if msg._forward:
+        msg._forward._client = None
+    new_msg = deepcopy(msg)
 
-    new_msg = deepcopy(msg)  # copies everything including media
-
-    if orig_channel.is_public:
-        post_link = orig_channel.link.replace('https://t.me/', 't.me/') + '/' + str(msg.id)
-    elif not orig_channel.is_public:
-        post_link = 't.me/c/' + str(orig_channel_id) + str(msg.id)
+    if orig_channel.is_public == True:
+        post_link = orig_channel.link.replace('https://t.me/', 't.me/') + '/' + str(original_msg_id)
+    elif orig_channel.is_public == False:
+        post_link = 't.me/c/' + str(orig_channel.id) + '/' + str(original_msg_id)
     else:
         post_link = 'unknown'
     postfix = MSG_POSTFIX_TEMPLATE.format(post_link=post_link)
@@ -124,12 +125,14 @@ def format_forwarded_msg_as_original(msg: Message, client: TelegramClient) -> Me
 
 
 async def send_msg_list(msg_list: List[Message], bot_client: TelegramClient, peer_to_forward_to: TypeInputPeer,
-                  user_client: TelegramClient = None):
+                        last_grouped_id=None,
+                        user_client: TelegramClient = None):
     """
 
     Parameters
     ----------
-    msg_list
+    msg_list : List[Message]
+        List of 1+ messages. They may be grouped (same grouped_id) or not.
     bot_client
     peer_to_forward_to link or ID?
 
@@ -137,34 +140,65 @@ async def send_msg_list(msg_list: List[Message], bot_client: TelegramClient, pee
     -------
 
     """
-    for msg in msg_list:
-        # TODO: add an additional step with forwarding to myself to allow using media. To func
-        # TODO: Use get_messages and msg.forward_to
-        if msg.media is not None:
+    # TODO: check A Bot API-like ``file_id``. You can convert previously
+    #                   sent media to file IDs for later reusing with
+    #                   `telethon.utils.pack_bot_file_id`.
+    if last_grouped_id:
+        # like here https://stackoverflow.com/questions/64111232/python-telethon-send-album
+        raise NotImplementedError('the textual field of the caption has to be processed while the rest messages sent as files')
+    else:  # if the messages are independent, process one by one with a common .message extension
+        for msg in msg_list:
+            # TODO: Use get_messages and msg.forward_to
+
+            original_msg_id = msg.id  # it's wrong if the message is forwarded to the channel from which we read
             async with user_client:
-                bot_entity = await user_client.get_entity('https://t.me/smartfeed_bot')
-                # bot_entity = user_client.get_entity(-1005862458219)
-                await user_client.send_message(entity=bot_entity, message='test')
                 orig_channel_id, orig_name, orig_date, _, _, _ = await get_message_origins(user_client, msg)
-                orig_channel_entity = await user_client.get_entity(orig_channel_id)
-                # user_client.forward_messages(entity=bot_entity, messages=msg, from_peer=orig_channel_id)
-                # await msg.forward_to('me')
-                # await msg.forward_to(bot_entity)
-                await user_client.forward_messages(entity=bot_entity, messages=msg, from_peer=orig_channel_entity)
-                # user_client.forward_messages('https://t.me/smartfeed_bot', messages=msg)
+                orig_channel = Channel(channel_id=orig_channel_id, channel_name=orig_name, client=client)
+
+            # TODO: add an additional step with forwarding to myself to allow using media to func
+            if msg.media is not None:
+
+                async with user_client:
+                    bot_entity = await user_client.get_input_entity(config.bot_id)
+                    await user_client.forward_messages(entity=bot_entity, messages=msg, from_peer=orig_channel_id)
+                    user_to_bot_msg_sent = await user_client.get_messages(bot_entity)  # TODO: save to a file and update sometimes?
+                async with bot_client:
+                #     # without ids, it may use getHistory, which bots cannot use.
+                #     telethon.errors.rpcerrorlist.BotMethodInvalidError: The API access for bot users is restricted.
+                #     The method you tried to invoke cannot be executed as a bot (caused by GetHistoryRequest)
+                #     bot_user_msg = await bot_client.get_messages(config.my_id, ids=user_bot_msg[0].id)
+                #     for i in range(409, 410):
+                #         bot_user_msg = await bot_client.get_messages(config.my_id, ids=i)
+                #         if bot_user_msg:
+                #             print(i)
+                #             print(bot_user_msg)
+                    bot_last_id = get_last_bot_id() + 1  # as we have just sent another one
+                    msg = await bot_client.get_messages(config.my_id, ids=bot_last_id)
+                    if msg:
+                        save_last_bot_ids(bot_last_id)
+
+            # TODO: groups are not together
             async with bot_client:
-                msg = await bot_client.get_messages("https://t.me/Oleg_Litvinov_1997", #int('100'+str(config.my_id)),
-                                              ids=msg.id)  # without ids, it may use getHistory, which bots cannot use. telethon.errors.rpcerrorlist.BotMethodInvalidError: The API access for bot users is restricted. The method you tried to invoke cannot be executed as a bot (caused by GetHistoryRequest)
-
-                msg = await bot_client.get_messages("https://t.me/Oleg_Litvinov_1997",  # int('100'+str(config.my_id)),
-                                              ids=1)
-
-        new_msg = format_forwarded_msg_as_original(msg, bot_client)
-        # from docs: If you want to “forward” a message without the forward header (the “forwarded from” text), you
-        # should use send_message with the original message instead. This will send a copy of it.
-        await bot_client.send_message(entity=peer_to_forward_to, message=new_msg.message, file=new_msg.media,
-                                formatting_entities=new_msg.entities, link_preview=False)  # wrapper for functions.messages.SendMessageRequest
-
+                new_msg = format_forwarded_msg_as_original(msg, orig_channel, original_msg_id)
+                # from docs: If you want to “forward” a message without the forward header (the “forwarded from” text), you
+                # should use send_message with the original message instead. This will send a copy of it.
+                media = new_msg.media
+                if isinstance(new_msg.media, MessageMediaWebPage):
+                    if isinstance(new_msg.media.webpage, WebPage):  # Webpage preview
+                        media = new_msg.media.webpage.document or new_msg.media.webpage.photo
+                    elif isinstance(new_msg.media.webpage, WebPageEmpty):
+                        media = None
+                try:
+                    await bot_client.send_message(entity=peer_to_forward_to,
+                                                  message=new_msg.message,
+                                                  file=media,  # TODO: make this a list of all the messages in a group
+                                                  formatting_entities=new_msg.entities,
+                                                  link_preview=False)  # wrapper for functions.messages.SendMessageRequest
+                except MediaEmptyError:
+                    logger.error(f"Unable to send message to {peer_to_forward_to}\n{new_msg.stringify()}\n"
+                                 f"with media\n{media.stringify()}\n(caused by SendMediaRequest)")
+                # TODO: check according to the publically available limitations?
+                # telethon.errors.rpcerrorlist.MediaCaptionTooLongError: The caption is too long (caused by SendMediaRequest)
 
 # TODO: add parameter send_as_mine/forward
 # TODO: why link is used!? Switch to id
@@ -206,7 +240,8 @@ def group_and_forward_msgs(bot_client: TelegramClient, from_peer: TypeInputPeer,
                 logger.log(5, f"Group {msg.grouped_id} has one more message to be sent. "
                               f"Total size: {len(grouped_msg_list)}")
         else:  # the current message is a single message
-            grouped_msg_list = send_group_if_non_empty(msg_list=grouped_msg_list, bot_client=bot_client, from_peer=from_peer,
+            grouped_msg_list = send_group_if_non_empty(msg_list=grouped_msg_list, bot_client=bot_client,
+                                                       from_peer=from_peer,
                                                        peer_to_forward_to=peer_to_forward_to,
                                                        last_grouped_id=last_grouped_id,
                                                        user_client=user_client)
@@ -273,12 +308,13 @@ def forward_msg_by_id_list(client: TelegramClient, peer: TypeInputPeer, msg_ids_
         time.sleep(randint(5, 20))  # not to send all the messages in bulk
 
     logger.log(5, f'forwarding msg to {peer_to_forward_to}')
-    client(ForwardMessagesRequest(
-        from_peer=peer,  # who sent these messages?
-        id=msg_ids_to_forward,  # which are the messages? = grouped_ids
-        to_peer=peer_to_forward_to,  # who are we forwarding them to?
-        with_my_score=True
-    ))
+    with client:
+        client(ForwardMessagesRequest(
+            from_peer=peer,  # who sent these messages?
+            id=msg_ids_to_forward,  # which are the messages? = grouped_ids
+            to_peer=peer_to_forward_to,  # who are we forwarding them to?
+            with_my_score=True
+        ))
     logger.log(5, f'forwawrded msg ids: {msg_ids_to_forward} to {peer_to_forward_to}')
 
 
@@ -317,10 +353,9 @@ def main(user_client: TelegramClient, bot_client: TelegramClient, recommender):
         try:
             logger.log(5, f"Searching for new messages in channel: {src_ch!r} with the last msg_id {last_channel_ids[src_ch.id]}")
 
-            messages = check_new_channel_messages(src_ch=src_ch, last_channel_ids=last_channel_ids, client=user_client)
-            if messages is not None:
+            msg_list = check_new_channel_messages(src_ch=src_ch, last_channel_ids=last_channel_ids, client=user_client)
+            if msg_list is not None:
                 # time.sleep(randint(5, 10))
-                msg_list = messages.messages  # by default their order is descending (recent to old)
                 # logger.debug(f"Found {len(msg_list)} message(s) in '{messages.chats[0].title}' ({src_ch.link})")
                 logger.debug(f"Found {len(msg_list)} message(s) in '{src_ch!r})")
 
@@ -334,15 +369,10 @@ def main(user_client: TelegramClient, bot_client: TelegramClient, recommender):
                                                                             recommender=recommender,
                                                                             user_client=user_client)
 
-                    if dst_ch.is_public:
-                        # may be utilised with an "empty" bot as link is enough?
-                        # group_and_forward_msgs(client=bot_client, from_peer=src_ch.link, msg_list=messages_checked_list,
-                        #                        peer_to_forward_to=dst_ch.link)  # TODO: switch to .id as well?
-                        group_and_forward_msgs(bot_client=bot_client, from_peer=src_ch.id, msg_list=messages_checked_list,
-                                               peer_to_forward_to=dst_ch.id, user_client=user_client)
-                    else:  # TODO: reduce this branch proving that link is not needed
-                        group_and_forward_msgs(bot_client=bot_client, from_peer=src_ch.link, msg_list=messages_checked_list,
-                                               peer_to_forward_to=dst_ch.id, user_client=user_client)
+                    # TODO: replace peers to channels to improve visibility
+                    group_and_forward_msgs(bot_client=bot_client, from_peer=src_ch.id, msg_list=messages_checked_list,
+                                           peer_to_forward_to=dst_ch.id, user_client=user_client)
+
 
                 # TODO: this increment probably has to be performed anyway even in case of fail
                 last_msg_id = msg_list[0].id
@@ -368,7 +398,7 @@ def select_messages_for_dst_channel(msg_list: List[Message], src_ch: Channel, ds
     try:
         # TODO: perform history check later wrt the dst channel and it's rb list
         with user_client:
-            # logger.error('HISTORY IS NOT CHECKED')
+            # logger.error('FILTERING IS NOT PERFORMED')
             filter_component = Filter(rule_base_check=True, history_check=True, client=user_client,
                                       dst_ch=dst_ch, use_common_rules=True,
                                       postfix_template_to_ignore=MSG_POSTFIX_TEMPLATE)
@@ -379,6 +409,8 @@ def select_messages_for_dst_channel(msg_list: List[Message], src_ch: Channel, ds
                 recommend_prob = recommender.predict_proba(msg, client=user_client,
                                                            user_channel_link=dst_ch.link)
 
+        if len(set(filtering_details.values())) > 2:
+            print(filtering_details)
         with user_client:  # TODO: swich to async with?
             asyncio.get_event_loop().run_until_complete(log_messages(
                 client=user_client,
@@ -406,8 +438,9 @@ def check_new_channel_messages(src_ch, last_channel_ids, client):
             # and there will be gaps
             # peer=InputPeerChannel(entity_id, entity_hash)
             messages = None
-            messages = get_history(client=client, min_id=last_channel_ids[src_ch.id], peer=src_ch.id, limit=30)
-            if len(messages.messages) == 0:
+            messages = asyncio.get_event_loop().run_until_complete(
+                get_history(client=client, min_id=last_channel_ids[src_ch.id], entity=src_ch.id, limit=30))
+            if len(messages) == 0:
                 try:
                     # solution based on telegram dialog fields
                     dialog = client(GetPeerDialogsRequest(peers=[src_ch.id])).dialogs[0]
@@ -424,11 +457,11 @@ def check_new_channel_messages(src_ch, last_channel_ids, client):
                     if dialog.unread_mark:
                         logger.info(f"Channel {src_ch} is marked as unread manually")
                         # if fetched message.grouped_id is not None, fetch until group changes and then send
-                        messages = get_history(client=client, min_id=dialog.top_message - 1, peer=src_ch.id, limit=1)
+                        messages = asyncio.get_event_loop().run_until_complete(get_history(client=client, min_id=dialog.top_message - 1, entity=src_ch.id, limit=1))
                     else:  # this should not be triggered and has to be removed
                         logger.info(f"Channel {src_ch} has {dialog.unread_count} unread posts")
-                        messages = get_history(client=client, min_id=dialog.read_inbox_max_id, peer=src_ch.id,
-                                               limit=dialog.unread_count)
+                        messages = asyncio.get_event_loop().run_until_complete(get_history(client=client, min_id=dialog.read_inbox_max_id, entity=src_ch.id,
+                                               limit=dialog.unread_count))
     # TODO: remove channel from database or fetch the recent info
     except UsernameNotOccupiedError:
         logger.error(f"{src_ch} is not found.\nConsider removing from all readlists", exc_info=True)
@@ -446,7 +479,7 @@ def check_new_channel_messages(src_ch, last_channel_ids, client):
         logger.error(f'Unknown fail in get_history with {src_ch}')
         return None
 
-    if messages is None or len(messages.messages) == 0:
+    if len(messages) == 0:
         return None
     return messages
 

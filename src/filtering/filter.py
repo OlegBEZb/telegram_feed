@@ -189,7 +189,8 @@ class Filter:
             return msg
         message_postfix_match = re.search(self.postfix_re_pattern_to_ignore, msg.message)
         if message_postfix_match:
-            new_msg = deepcopy(msg)
+            # new_msg = deepcopy(msg)
+            new_msg = msg
             new_msg.message = re.sub(self.postfix_re_pattern_to_ignore, '', new_msg.message)  # remove end of text
             new_msg.entities = [e for e in new_msg.entities if e.offset < message_postfix_match.start()]  # TODO: check border
             if len(new_msg.entities) == 0:
@@ -214,41 +215,32 @@ class Filter:
         :param msg_list:
         :return:
         """
-        # TODO: move filtering_details logic to the _filter function and mb split common/personal rb
-        msg_list_before = deepcopy(msg_list)
+        filtering_details = {k.id: None for k in msg_list}
         len_before = len(msg_list)
 
+        # TODO: mb split common/personal rb
         if self.rule_base_check and self.checkrules_list != []:
             logger.log(5, f"Performing a rule-based filtering for {self.dst_ch!r}")
-            msg_list = self._filter(msg_list, filter_func=message_is_filtered_by_rules, rules_list=self.checkrules_list)
-            filtering_details = {k.id: (None if k.id in [m.id for m in msg_list] else 'rb') for k in msg_list_before}
-            msg_list_before = deepcopy(msg_list)
+            msg_list, filtering_details = self._filter(msg_list, filter_func=message_is_filtered_by_rules,
+                                                       filtering_details=filtering_details, filter_name='rb',
+                                                       rules_list=self.checkrules_list)
         if msg_list and self.history_check:
             logger.debug(f"Performing a history filtering for {self.dst_ch!r}")
-            # have to be more or less global and extended after every message forwarded to my channel
-
-            # if self.dst_ch.is_public:
-            #     dst_channel_history = get_history(client=self.client, peer=self.dst_ch.link, limit=100)
-            # else:
-            #     dst_channel_history = get_history(client=self.client, peer=self.dst_ch.id, limit=100)
-            dst_channel_history = get_history(client=self.client, peer=self.dst_ch.id, limit=100)
-
-            dst_channel_history_messages = dst_channel_history.messages
+            # history has to be more or less global and extended after every message forwarded to my channel
+            # instead of querying every time
+            dst_channel_history_messages = asyncio.get_event_loop().run_until_complete(get_history(client=self.client, entity=self.dst_ch.id, limit=100))
             dst_channel_history_messages = [msg for msg in dst_channel_history_messages if msg.action is None]  # filter out channel creation, voice calls, etc.
             dst_channel_history_messages = [self._remove_postfix(msg) for msg in dst_channel_history_messages]
-            msg_list = self._filter(msg_list, filter_func=message_is_duplicated,
-                                    history_messages=dst_channel_history_messages,
-                                    client=self.client)
-            # (v if v is not None or k in [m.id for m in msg_list] else 'hist')
-            # we keep None for the normal messages, 'hist' for the ones filtered on this step, and we preserve 'rb'
-            # from the prev step
-            filtering_details = {k: (v if v is not None or k in [m.id for m in msg_list] else 'hist') for k, v in filtering_details.items()}
-
+            msg_list, filtering_details = self._filter(msg_list, filter_func=message_is_duplicated,
+                                                       filtering_details=filtering_details, filter_name='hist',
+                                                       history_messages=dst_channel_history_messages,
+                                                       client=self.client)
         if len_before != len(msg_list):
             logger.debug(f'Before filtering: {len_before}. After: {len(msg_list)}')
         return msg_list, filtering_details
 
-    def _filter(self, msg_list: List[Message], filter_func, **filter_func_kwargs) -> List[Message]:
+    def _filter(self, msg_list: List[Message], filter_func, filtering_details,
+                filter_name, **filter_func_kwargs) -> List[Message]:
         """
         From a list of messages which was planned to be sent removes the ones according to the filter_func.
         If at least one of the messages in the group is filtered out, the whole group will be dropped
@@ -259,7 +251,7 @@ class Filter:
         :param filter_func_kwargs:
         :return:
         """
-        msg_list_filtered = []
+        msg_list_clean = []
         to_drop_group_id = -1
         to_drop_message_ids = []
 
@@ -276,7 +268,7 @@ class Filter:
                 to_drop_message_ids.append(msg.id)
             else:
                 if msg.grouped_id != to_drop_group_id:  # no group also counts
-                    msg_list_filtered.append(msg)
+                    msg_list_clean.append(msg)
                 else:
                     logger.log(5, f'removed an indirect spam message from to_drop group {to_drop_group_id}. '
                                   f'To_drop message:\n{to_drop_message[:20]}')
@@ -284,15 +276,22 @@ class Filter:
         logger.log(5, f'to_drop_message_ids: {to_drop_message_ids}')
 
         after_check_drop_list = []
-        for msg in msg_list_filtered:
+        for msg in msg_list_clean:
             if msg.grouped_id in to_drop_groups_after_check:
                 after_check_drop_list.append(msg)
         if after_check_drop_list:
             logger.info('Some message was filtered in the middle of the group')
-            msg_list_filtered = [msg for msg in msg_list_filtered if msg not in after_check_drop_list]
+            msg_list_clean = [msg for msg in msg_list_clean if msg not in after_check_drop_list]
 
-        msg_list_filtered.reverse()  # for consistency, msg_list is always descending
-        return msg_list_filtered
+        msg_list_clean.reverse()  # for consistency, msg_list is always descending
+
+        # None for passing messages, filter_name from the previous or the current step if filtered out
+        filtering_details = {
+            msg_id: (v if v is not None or msg_id in [m.id for m in msg_list_clean] else filter_name) for
+            msg_id, v in
+            filtering_details.items()}
+
+        return msg_list_clean, filtering_details
 
 
 if __name__ == '__main__':
