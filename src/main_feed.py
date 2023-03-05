@@ -1,5 +1,6 @@
 import asyncio
 import os
+import re
 import argparse
 from random import randint
 from copy import deepcopy
@@ -15,7 +16,8 @@ from telethon.tl.types import MessageMediaWebPage, WebPage, WebPageEmpty
 from telethon.tl.patched import Message
 from telethon.tl.functions.messages import GetPeerDialogsRequest, ForwardMessagesRequest
 from telethon.errors import (ChannelPrivateError, UsernameNotOccupiedError, MessageIdInvalidError, FloodWaitError,
-                             ChatAdminRequiredError, ChatWriteForbiddenError, ChannelInvalidError, MediaEmptyError)
+                             ChatAdminRequiredError, ChatWriteForbiddenError, ChannelInvalidError, MediaEmptyError,
+                             MediaCaptionTooLongError)
 from telethon.extensions import html
 
 
@@ -50,8 +52,8 @@ def send_group_if_non_empty(msg_list: List[Message], bot_client: TelegramClient,
 
         try:
             # if send_not_forward and all(m.media is None for m in msg_list):  # as original. TODO: remove the second part
-            if send_not_forward and (last_grouped_id is None):  # TODO: remove the second part
-            # if send_not_forward:  # as original
+            # if send_not_forward and (last_grouped_id is None):  # TODO: remove the second part
+            if send_not_forward:  # as original
                 asyncio.get_event_loop().run_until_complete(send_msg_list(msg_list=msg_list, bot_client=bot_client,
                                                                           peer_to_forward_to=peer_to_forward_to,
                                                                           last_grouped_id=last_grouped_id,
@@ -99,11 +101,14 @@ def format_forwarded_msg_as_original(msg: Message, orig_channel: Channel, origin
         The message object after formatting as if it was sent from the original channel
 
     """
-    # without that copying doesn't work
-    msg._client = None
-    if msg._forward:
-        msg._forward._client = None
-    new_msg = deepcopy(msg)
+    try:
+        # without that copying doesn't work
+        msg._client = None
+        if msg._forward:
+            msg._forward._client = None
+        new_msg = deepcopy(msg)
+    except:
+        logger.error(f'Unable to remove clients from message\n{msg.stringify()}')
 
     if orig_channel.is_public == True:
         post_link = orig_channel.link.replace('https://t.me/', 't.me/') + '/' + str(original_msg_id)
@@ -111,15 +116,21 @@ def format_forwarded_msg_as_original(msg: Message, orig_channel: Channel, origin
         post_link = 't.me/c/' + str(orig_channel.id) + '/' + str(original_msg_id)
     else:
         post_link = 'unknown'
+
+    # replaces other channel signature at the end of the message (should be without entities)
+    # but anyway MessageEntityMention remains. Is this a problem?
+    if re.search(r"\n+@[a-z_]+\n*$", new_msg.message):
+        new_msg.message = re.sub(r"\n+@[a-z_]+\n*$", "", new_msg.message)
+
     postfix = MSG_POSTFIX_TEMPLATE.format(post_link=post_link)
     new_msg.message += postfix
 
     text, extra_entities = html.parse(new_msg.message)
+    new_msg.message = text
     if new_msg.entities is None:
         new_msg.entities = extra_entities
     else:
         new_msg.entities += extra_entities
-    new_msg.message = text
 
     return new_msg
 
@@ -144,61 +155,103 @@ async def send_msg_list(msg_list: List[Message], bot_client: TelegramClient, pee
     #                   sent media to file IDs for later reusing with
     #                   `telethon.utils.pack_bot_file_id`.
     if last_grouped_id:
+        # media is MessageMediaPhoto. the message with the smallest ID has the message field aka caption
         # like here https://stackoverflow.com/questions/64111232/python-telethon-send-album
-        raise NotImplementedError('the textual field of the caption has to be processed while the rest messages sent as files')
+        # group comes with ascending msg_id
+        async with user_client:
+            orig_channel_id, orig_name, _, original_msg_id, _, _, _, _ = await get_message_origins(user_client,
+                                                                                                   msg_list[0])
+            orig_channel = Channel(channel_id=orig_channel_id, channel_name=orig_name, client=client)
+
+        album_msg_list = []
+        for msg in msg_list:
+            album_msg = await ensure_media_access(msg, user_client, bot_client, orig_channel_id)
+            album_msg_list.append(album_msg)
+
+        async with bot_client:
+            new_msg = format_forwarded_msg_as_original(album_msg_list[0], orig_channel, original_msg_id)  # maybe it should be album_list but for some reason 0th album message doesn't have text
+            try:
+                await bot_client.send_message(entity=peer_to_forward_to,
+                                              message=new_msg.message,
+                                              file=album_msg_list,  # event.messages is a List - meaning we're sending an album
+                                              formatting_entities=new_msg.entities,
+                                              link_preview=True)  # wrapper for functions.messages.SendMessageRequest
+            except MediaEmptyError:
+                logger.error(f"Unable to send message to {peer_to_forward_to}\n{new_msg.stringify()}\n")
+
     else:  # if the messages are independent, process one by one with a common .message extension
         for msg in msg_list:
-            # TODO: Use get_messages and msg.forward_to
-
-            original_msg_id = msg.id  # it's wrong if the message is forwarded to the channel from which we read
             async with user_client:
-                orig_channel_id, orig_name, orig_date, _, _, _ = await get_message_origins(user_client, msg)
+                orig_channel_id, orig_name, _, original_msg_id, _, _, _, _ = await get_message_origins(user_client, msg)
                 orig_channel = Channel(channel_id=orig_channel_id, channel_name=orig_name, client=client)
 
-            # TODO: add an additional step with forwarding to myself to allow using media to func
-            if msg.media is not None:
-
-                async with user_client:
-                    bot_entity = await user_client.get_input_entity(config.bot_id)
-                    await user_client.forward_messages(entity=bot_entity, messages=msg, from_peer=orig_channel_id)
-                    user_to_bot_msg_sent = await user_client.get_messages(bot_entity)  # TODO: save to a file and update sometimes?
-                async with bot_client:
-                #     # without ids, it may use getHistory, which bots cannot use.
-                #     telethon.errors.rpcerrorlist.BotMethodInvalidError: The API access for bot users is restricted.
-                #     The method you tried to invoke cannot be executed as a bot (caused by GetHistoryRequest)
-                #     bot_user_msg = await bot_client.get_messages(config.my_id, ids=user_bot_msg[0].id)
-                #     for i in range(409, 410):
-                #         bot_user_msg = await bot_client.get_messages(config.my_id, ids=i)
-                #         if bot_user_msg:
-                #             print(i)
-                #             print(bot_user_msg)
-                    bot_last_id = get_last_bot_id() + 1  # as we have just sent another one
-                    msg = await bot_client.get_messages(config.my_id, ids=bot_last_id)
-                    if msg:
-                        save_last_bot_ids(bot_last_id)
+            msg = await ensure_media_access(msg, user_client, bot_client, orig_channel_id)
 
             # TODO: groups are not together
             async with bot_client:
                 new_msg = format_forwarded_msg_as_original(msg, orig_channel, original_msg_id)
-                # from docs: If you want to “forward” a message without the forward header (the “forwarded from” text), you
-                # should use send_message with the original message instead. This will send a copy of it.
+                # from docs: If you want to “forward” a message without the forward header (the “forwarded from” text),
+                # you should use send_message with the original message instead. This will send a copy of it.
                 media = new_msg.media
                 if isinstance(new_msg.media, MessageMediaWebPage):
                     if isinstance(new_msg.media.webpage, WebPage):  # Webpage preview
                         media = new_msg.media.webpage.document or new_msg.media.webpage.photo
                     elif isinstance(new_msg.media.webpage, WebPageEmpty):
-                        media = None
+                        media = None  # Bots can't access web previews. TODO: create myself?
                 try:
                     await bot_client.send_message(entity=peer_to_forward_to,
                                                   message=new_msg.message,
                                                   file=media,  # TODO: make this a list of all the messages in a group
                                                   formatting_entities=new_msg.entities,
-                                                  link_preview=False)  # wrapper for functions.messages.SendMessageRequest
+                                                  link_preview=True)  # wrapper for functions.messages.SendMessageRequest
                 except MediaEmptyError:
                     logger.error(f"Unable to send message to {peer_to_forward_to}\n{new_msg.stringify()}\n"
                                  f"with media\n{media.stringify()}\n(caused by SendMediaRequest)")
                 # TODO: check according to the publically available limitations?
-                # telethon.errors.rpcerrorlist.MediaCaptionTooLongError: The caption is too long (caused by SendMediaRequest)
+                except MediaCaptionTooLongError:
+                    logger.error(f"Unable to send too long message to {peer_to_forward_to} "
+                                 f"with msg len: {len(new_msg.message)} (caused by SendMediaRequest)")
+
+
+async def ensure_media_access(msg, user_client, bot_client, orig_channel_id):
+    async def sync_bot_last_msg_id():
+        logger.error('Bot chat with the user is out of sync. Syncing')
+
+        tolerance = 10
+        last_expected_id = get_last_bot_id() - 5
+        last_actual_id = last_expected_id
+        last_msg = None
+        for i in range(last_expected_id, last_expected_id + 50):
+            bot_from_user_msg = await bot_client.get_messages(config.my_id, ids=i)
+            if bot_from_user_msg:
+                # print(i, bot_from_user_msg.date)
+                # print(bot_from_user_msg)
+                last_actual_id = i
+                tolerance = 0
+                last_msg = bot_from_user_msg
+            else:
+                tolerance -= 1
+                if tolerance == 0:
+                    # logger.info()
+                    break
+        print('Last id and date in the bot chat', last_actual_id, last_msg.date)
+        save_last_bot_ids(last_actual_id)
+        return last_msg, last_actual_id
+
+    if msg.media is not None:
+        async with user_client:
+            bot_entity = await user_client.get_input_entity(config.bot_id)
+            await user_client.forward_messages(entity=bot_entity, messages=msg, from_peer=orig_channel_id)
+        async with bot_client:
+            # bot_last_id = get_last_bot_id() + 1  # as we have just sent another one
+            # msg = await bot_client.get_messages(config.my_id, ids=bot_last_id)
+            # if msg:
+            #     save_last_bot_ids(bot_last_id)
+            # else:
+            #     msg, last_actual_id = await sync_bot_last_msg_id()  # it's a force sync of the bot chat
+            msg, last_actual_id = await sync_bot_last_msg_id()  # for debugging
+    return msg
+
 
 # TODO: add parameter send_as_mine/forward
 # TODO: why link is used!? Switch to id
@@ -220,7 +273,7 @@ def group_and_forward_msgs(bot_client: TelegramClient, from_peer: TypeInputPeer,
 
     for msg in reversed(msg_list):  # starting from the chronologically first
         # client.send_message(peer_to_forward_to, msg)
-        if msg_is_action(msg=msg, client=bot_client, from_peer=from_peer, peer_to_forward_to=peer_to_forward_to):
+        if asyncio.get_event_loop().run_until_complete(msg_is_action(msg=msg, client=bot_client, from_peer=from_peer, peer_to_forward_to=peer_to_forward_to)):
             continue
 
         if msg.grouped_id is not None:  # the current message is a part of a group
@@ -271,24 +324,25 @@ def resolve_and_send_groups(bot_client, grouped_msg_list, non_grouped_msg_list, 
     return grouped_msg_list, non_grouped_msg_list
 
 
-def msg_is_action(msg, client, from_peer, peer_to_forward_to):
+async def msg_is_action(msg, client, from_peer, peer_to_forward_to):
     try:
-        # TODO: check if regular messages have action. Looks like not
-        if isinstance(msg.action, (MessageActionGroupCall, MessageActionGroupCall)):
-            if msg.action.duration is None:
-                logger.info(f"{from_peer} started a call")
-                client.send_message(peer_to_forward_to, f"{from_peer} started a call")
-            else:
-                logger.info(f"{from_peer} ended a call")
-                client.send_message(peer_to_forward_to, f"{from_peer} ended a call")
-            return True
-        if isinstance(msg.action, MessageActionPinMessage):
-            logger.info(f"{from_peer} pinned a message")
-            client.send_message(peer_to_forward_to, f"{from_peer} pinned a message")
-            return True
-        return False
+        async with client:
+            # TODO: check if regular messages have action. Looks like not
+            if isinstance(msg.action, (MessageActionGroupCall, MessageActionGroupCall)):
+                if msg.action.duration is None:
+                    logger.info(f"{from_peer} started a call")
+                    await client.send_message(peer_to_forward_to, f"{from_peer} started a call")
+                else:
+                    logger.info(f"{from_peer} ended a call")
+                    await client.send_message(peer_to_forward_to, f"{from_peer} ended a call")
+                return True
+            if isinstance(msg.action, MessageActionPinMessage):
+                logger.info(f"{from_peer} pinned a message")
+                await client.send_message(peer_to_forward_to, f"{from_peer} pinned a message")
+                return True
+            return False
     except ChatWriteForbiddenError:
-        logger.error(f"{client.get_me()} can't forward from {from_peer} to {peer_to_forward_to} "
+        logger.error(f"{await client.get_me()} can't forward from {from_peer} to {peer_to_forward_to} "
                      f"(caused by ForwardMessagesRequest)")  # add the owner as well
 
 
@@ -457,7 +511,11 @@ def check_new_channel_messages(src_ch, last_channel_ids, client):
                     if dialog.unread_mark:
                         logger.info(f"Channel {src_ch} is marked as unread manually")
                         # if fetched message.grouped_id is not None, fetch until group changes and then send
-                        messages = asyncio.get_event_loop().run_until_complete(get_history(client=client, min_id=dialog.top_message - 1, entity=src_ch.id, limit=1))
+                        unread_mark_read_n_messages = 4
+                        messages = asyncio.get_event_loop().run_until_complete(get_history(client=client,
+                                                                                           min_id=dialog.top_message - unread_mark_read_n_messages,
+                                                                                           entity=src_ch.id,
+                                                                                           limit=unread_mark_read_n_messages))
                     else:  # this should not be triggered and has to be removed
                         logger.info(f"Channel {src_ch} has {dialog.unread_count} unread posts")
                         messages = asyncio.get_event_loop().run_until_complete(get_history(client=client, min_id=dialog.read_inbox_max_id, entity=src_ch.id,

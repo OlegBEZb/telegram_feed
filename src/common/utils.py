@@ -47,9 +47,9 @@ def get_reactions(msg: Message):
         reactions = msg.reactions.results
         d = {}
         for reaction in reactions:
-            if isinstance(reaction, ReactionEmoji):
+            if isinstance(reaction.reaction, ReactionEmoji):
                 d[reaction.reaction.emoticon] = reaction.count
-            elif isinstance(reaction, ReactionCustomEmoji):
+            elif isinstance(reaction.reaction, ReactionCustomEmoji):
                 d[reaction.reaction.document_id] = reaction.count
         return d
     return None
@@ -193,6 +193,7 @@ async def get_history(client: TelegramClient, **get_history_request_kwargs) -> '
 
 
 # TODO: not use name here at all. Only ID. Everything else is to be found by Channel
+# TODO: return original message ID
 async def get_message_origins(client: TelegramClient, msg: Message):
     try:
         if isinstance(msg.fwd_from, MessageFwdHeader):  # if message was forwarded to a place where we got it
@@ -213,20 +214,23 @@ async def get_message_origins(client: TelegramClient, msg: Message):
                 orig_channel_id = None
                 orig_name = '_Undefined_'
 
-            orig_date = msg.fwd_from.date
             fwd_to_channel_id = msg.chat_id
-            fwd_to_name = await get_display_name(client, msg.chat_id)
+            orig_date = msg.fwd_from.date
             fwd_date = msg.date
+            fwd_to_name = await get_display_name(client, msg.chat_id)
+            orig_post_id = msg.fwd_from.channel_post
+            fwd_to_post_id = msg.id
         else:  # this message is original
             orig_date = msg.date
             orig_name = await get_display_name(client, msg.chat_id)
             orig_channel_id = msg.chat_id
-            fwd_to_channel_id, fwd_to_name, fwd_date = None, None, None
+            orig_post_id = msg.id
+            fwd_to_channel_id, fwd_to_name, fwd_date, fwd_to_post_id = None, None, None, None
     except:
         logger.error(f"Failed to get source channel name and date\n{msg.stringify()}", exc_info=True)
         return None, None, None, None, None, None
 
-    return orig_channel_id, orig_name, orig_date, fwd_to_channel_id, fwd_to_name, fwd_date
+    return orig_channel_id, orig_name, orig_date, orig_post_id, fwd_to_channel_id, fwd_to_name, fwd_date, fwd_to_post_id
 
 
 def CheckCorrectlyPrivateLink(client: TelegramClient, req):
@@ -308,7 +312,7 @@ async def extract_msg_features(msg: Message, client: TelegramClient = None, **kw
         result_dict['grouped'] = True
 
     if client is not None:
-        orig_channel_id, orig_name, orig_date, fwd_to_channel_id, fwd_to_name, fwd_date = await get_message_origins(client, msg)
+        orig_channel_id, orig_name, orig_date, orig_post_id, fwd_to_channel_id, fwd_to_name, fwd_date, fwd_to_post_id = await get_message_origins(client, msg)
 
         result_dict['original_channel_name'] = orig_name
         result_dict['original_post_timestamp'] = orig_date  # TODO: add difference with the time of processing
