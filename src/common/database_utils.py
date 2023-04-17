@@ -1,5 +1,6 @@
-import asyncio
 import nest_asyncio
+
+from src.common.channel import Channel
 
 nest_asyncio.apply()
 
@@ -14,17 +15,14 @@ import aiofiles
 from aiocsv import AsyncDictWriter
 
 from telethon.tl.patched import Message
-from telethon.errors import ChannelPrivateError, UserNotParticipantError, ChannelInvalidError
+from telethon.errors import UserNotParticipantError, ChannelInvalidError
 from telethon.sync import TelegramClient
-from telethon.types import InputPeerChannel, InputPeerSelf
-from telethon.hints import EntityLike
 from telethon.tl.functions.messages import ExportChatInviteRequest
 
 import emoji
 
-from src.common.utils import (get_project_root, list_to_str_newline, extract_msg_features,
-                              check_channel_link_correctness)
-from src.common.utils import get_entity, get_channel_id, get_display_name, get_channel_link
+from src.common.utils import (list_to_str_newline, extract_msg_features)
+from src.common.get_project_root import get_project_root
 
 import logging
 
@@ -36,219 +34,6 @@ LAST_CHANNEL_MESSAGE_ID_FILEPATH = 'src/data/last_channel_message_id.json'
 LAST_BOT_MESSAGE_ID_FILEPATH = 'src/data/last_bot_message_id.json'
 RB_FILTER_LISTS_FILEPATH = 'src/data/rule_based_filter_lists.json'
 TRANSACTIONS_FILEPATH = 'src/data/transactions.csv'
-CHANNEL_CACHE_FILEPATH = 'src/data/channels_cache.json'
-
-
-class Channel:
-    """
-    Zeroly, parses input if the entity/parsable is of unknown type. For this, no API calls are performed.
-    Firstly, checks cached values in smartfeed database.
-    Secondly, tries to make a request and updates the values.
-    Otherwise, the channel will be with missed values.
-    """
-
-    def __init__(self, parsable=None, channel_id=None, channel_name=None, channel_link=None,
-                 is_public=None, restore_values=True, force_update=False, client=None):
-
-        self._client = client
-        self.parsable = parsable
-        self.id = channel_id
-        self.name = channel_name
-        self.link = channel_link  # consider a list of links? invite vs channel?
-        self.input_entity = None  # TODO: maybe initialize from input? Are there cases to pass it?
-        self.is_public = is_public
-        self.restore_values = restore_values
-        self.force_update = force_update
-
-        if self.parsable:
-            # here entity may be already in the cache but of not known type (ID, link) so the goal here is to define
-            # the entity type and decide what kind of processing is needed. Instead of parsing ourselves, we can get
-            # ID with the solution from telethon:
-            # "If you want to get the entity for a *cached* username, you should first `get_input_entity(username)
-            # <get_input_entity>` which will use the cache), and then use `get_entity` with the result of the previous
-            # call."
-            try:
-                if self.parsable.lstrip('-').isdigit():
-                    self.parsable = int(self.parsable)
-                self.input_entity = self.get_input_entity_offline(self.parsable)
-                self.id = int('-100' + str(self.input_entity.channel_id))
-                logger.debug(f'Inferred input entity {self.input_entity} from parsable {self.parsable}')
-            except ValueError:
-                # TODO: if there is nothing after parseable and we do not know what is the type of parseable, below will fail
-                pass
-
-        if restore_values:
-            if self.id is None or self.name is None or self.link is None:  # here we do not do any difference for public and private
-                # old values may still be useful. Example: we knew link and ID but session got lost. The session can
-                # be refreshed if link is still working
-                self._restore_from_cache()
-
-            # TODO: maybe launch once in a while to refresh values if there are remaining calls for today?
-            # TODO: let get_entity work with any input and extract id, link and name after?
-            # TODO: optimize
-            # TODO: add 'update_date' to the storage
-            # no link and public=True - infer
-            # no link and private=False - no infer
-            # no link and unk=None - infer
-            if self.force_update \
-                    or self.id is None \
-                    or self.name is None \
-                    or (self.link is None and (self.is_public != False)):
-                self._restore_via_request()
-
-        if self.id is None and self.link is None:
-            raise ValueError(f'Either id or link has to be provided to specify a channel\n{self}')
-
-        # below is not true as most of communications may be performed using ID only.
-        # Private channels don't have link at all
-        # if self.id is None and self.name is None and self.link is None:
-        #     raise ValueError(f"not able to use {self}")
-
-    # await self._client._get_entity_from_string(x)
-
-    def _restore_via_request(self):
-        if self._client is None:
-            raise ValueError(f'TelegramClient has to be passed to perform a force update. {self.__repr__()}')
-
-        logger.info(f'Performing a force update for {self!r}')
-        if self.input_entity or self.parsable:  # perform request using parsable/input entity (a bit better than call everything from scratch)
-            if self.input_entity:
-                entity = self.input_entity
-            elif self.parsable:
-                entity = self.parsable
-
-            entity = asyncio.get_event_loop().run_until_complete(get_entity(self._client, entity))
-            self.id = asyncio.get_event_loop().run_until_complete(get_channel_id(self._client, entity))
-            self.link = asyncio.get_event_loop().run_until_complete(
-                get_channel_link(self._client, entity))  # doesn't work without nesting
-        else:  # perform the heaviest request
-            if self.link is not None:
-                self.link = check_channel_link_correctness(self.link)
-                entity = asyncio.get_event_loop().run_until_complete(get_entity(client, self.link))
-                self.id = asyncio.get_event_loop().run_until_complete(get_channel_id(self._client, entity))
-            elif self.id is not None:
-                entity = asyncio.get_event_loop().run_until_complete(get_entity(self._client, self.id))
-                self.link = asyncio.get_event_loop().run_until_complete(get_channel_link(self._client, entity))
-            else:
-                raise
-
-        self.name = asyncio.get_event_loop().run_until_complete(get_display_name(self._client, entity))
-
-        if self.link is None:
-            self.is_public = False
-        else:
-            self.is_public = True
-
-        logger.info(f"Restored {self. __repr__()} via request")
-        channels = get_channels(restore_values=False)
-        update_channels(channels, self)
-
-    def get_input_entity_offline(self, peer: EntityLike) -> InputPeerChannel:
-        """
-        It's a simplified copy of the get_input_entity function from telethon.client.users file. This is created
-        to reduce the number of API calls. If input entity is not restorable from cache, the full entity will be
-        requested, not a reduced version. This information will be stored in cache via call + information specific
-        for smartfeed will be fetched.
-
-        # unfortunately, this get_input_entity also performs an API call while returning a cut version of the entity.
-        #     # moreover, it registers the entity in cache.
-        #     # if we don't have this ID in cache, we will call the API twice - for ID and for all the fields once again
-
-        If the entity can't be found, ``ValueError`` will be raised.
-
-        Parameters
-        ----------
-        client
-        peer
-
-        Returns
-        -------
-
-        """
-        from telethon.utils import get_input_peer
-
-        # Short-circuit if the input parameter directly maps to an InputPeer
-        try:
-            return get_input_peer(peer)
-        except TypeError:
-            pass
-
-        # Next in priority is having a peer (or its ID) cached in-memory
-        try:
-            # 0x2d45687 == crc32(b'Peer')
-            if isinstance(peer, int) or peer.SUBCLASS_OF_ID == 0x2d45687:
-                return self._client._entity_cache[peer]
-        except (AttributeError, KeyError):
-            pass
-
-        # Then come known strings that take precedence
-        if peer in ('me', 'self'):
-            return InputPeerSelf()
-
-        # No InputPeer, cached peer, or known string. Fetch from disk cache
-        try:
-            return self._client.session.get_input_entity(peer)
-        except ValueError:
-            pass
-
-        raise ValueError(
-            'Could not find the input entity for {} of type {}. Please read https://'
-            'docs.telethon.dev/en/stable/concepts/entities.html to'
-            ' find out more details.'.format(peer, type(peer).__name__)
-        )
-
-    def _restore_from_cache(self):
-        """
-        Fully overwrites Channel fields if there is a local match via id or link (in this priority).
-        Name is not used as a source of truth as it's not unique.
-
-        Returns
-        -------
-
-        """
-        channels = get_channels(restore_values=False)
-
-        id_match, link_match = [], []
-        for ch in channels:
-            if self.id is not None and ch.id == self.id:
-                id_match.append(ch)
-            elif self.link is not None and ch.link == self.link:  # for private channels link is None
-                logger.info(f'Found cached link while not having ID passed: {ch}')
-                link_match.append(ch)
-
-        matches = id_match + link_match
-        if len(matches) == 0:
-            logger.error(f"{self!r} not found in cache")
-        else:
-            cached_channel = matches[0]
-            self.id = cached_channel.id
-            self.name = cached_channel.name
-            self.link = cached_channel.link
-            self.is_public = cached_channel.is_public  # we may not know if the channel if public knowing only fragments
-            logger.log(5, f"Restored {self!r} from cache")
-
-    def __eq__(self, other):
-        """Overrides the default implementation"""
-        # TODO: probably check both id, name, link fields to update potentially
-        if isinstance(other, Channel):
-            return (self.id == other.id) and (self.name == other.name) and (self.link == self.link)
-        return False
-
-    def __str__(self):
-        # TODO: consider something more readable. To show to user?
-        # return f"""Channel(id={self.id}, name="{self.name}", link="{self.link}", public={self.is_public})"""
-        if self.link is not None:
-            return self.link.replace('https://t.me/', '@')
-        elif self.name is not None:
-            return self.name
-        else:
-            return str(self.id)
-
-    def __repr__(self):
-        return f"""Channel(id={self.id}, name="{self.name}", link="{self.link}", public={self.is_public})"""
-
-    def __hash__(self):
-        return hash(self.id)
 
 
 def get_last_bot_id():
@@ -516,6 +301,9 @@ async def log_messages(client: TelegramClient, msg_list_before: List[Message],
         elif filtering_details[msg.id] == 'hist':
             row_dict['action'] = 'filter'
             row_dict['filtered_by_hist'] = True
+        elif 'recommender_' in filtering_details[msg.id]:
+            row_dict['action'] = 'filter'
+            row_dict['filtered_by_ml'] = True
 
         row_dict.update(kwargs)
 
@@ -525,77 +313,6 @@ async def log_messages(client: TelegramClient, msg_list_before: List[Message],
     path = os.path.join(root, TRANSACTIONS_FILEPATH)
     await dict_to_csv_async(d=rows, filepath=path)
     logger.log(5, "Saved transactions for messages")
-
-
-def get_channels(restore_values=True):
-    """
-    get_entity is a shortcut for GetUsers or in your case GetChannels, it takes a list of InputChannel,
-    the id goes to channel_id, but access_hash is what matters. if can't be found in session; request won't be sent.
-
-    You need to have the access_hash stored by yourself if you must delete session file, you can also pass
-    get_entity(inputChannel(id, hash)) to skip session check
-
-    :return:
-    """
-    root = get_project_root()
-    path = os.path.join(root, CHANNEL_CACHE_FILEPATH)
-    if os.path.exists(path):
-        with open(path, 'r', encoding='utf-8-sig') as f:
-            # "id" : {"username": username, "invite_link": invite_link}.
-            data = {int(ch_id): v for ch_id, v in json.load(f).items()}  # a la deserializer
-    else:
-        return None
-
-    channels = [Channel(channel_id=ch_id, channel_name=v['username'], channel_link=v['invite_link'],
-                        is_public=v['is_public'], restore_values=restore_values) for ch_id, v in data.items()]
-    return channels
-
-
-def save_channels(channels_list: List[Channel]):
-    root = get_project_root()
-    path = os.path.join(root, CHANNEL_CACHE_FILEPATH)
-
-    with open(path, 'w') as f:
-        json.dump({str(ch.id): {"username": ch.name, "invite_link": ch.link, 'is_public': ch.is_public} for ch in
-                   channels_list}, f)
-        logger.debug('saved channels cache')
-
-
-def update_channels(channels_list: List[Channel], target_ch: Channel, add_not_remove=True):
-    """
-
-
-    Parameters
-    ----------
-    channels_list
-    target_ch
-    add_not_remove
-
-    Returns
-    -------
-
-    """
-    # TODO: simplify logic
-    if add_not_remove:
-        if target_ch not in channels_list:  # firstly, check by full match
-            if target_ch.id in [ch.id for ch in channels_list]:
-                old_ch = [ch for ch in channels_list if ch.id == target_ch.id][0]
-                channels_list.remove(old_ch)
-                channels_list.append(target_ch)
-                logger.info(
-                    f'Cached {target_ch}\ninstead of outdated {old_ch}\nNow have {len(channels_list)} channels cached')
-            else:
-                channels_list.append(target_ch)
-                logger.info(
-                    f'Cached a new {target_ch}. Now have {len(channels_list)} channels cached')
-            save_channels(channels_list)
-        else:
-            logger.debug(f'Tried to cache already cached {target_ch}')
-    else:
-        channels_list = [c for c in channels_list if c != target_ch]
-        save_channels(channels_list)
-
-    return channels_list
 
 
 async def delete_users_channel(event, channel: Channel, clients: List[TelegramClient]):
@@ -656,6 +373,8 @@ if __name__ == '__main__':
 
         # ch3 = Channel(parsable="https://t.me/sansara_channel", client=client, restore_values=True, force_update=True)
         ch3 = Channel(channel_id=-1001177342537, client=client, restore_values=True, force_update=True)
+        ch4 = Channel(channel_id=-1001830001000, client=client, restore_values=True, force_update=False)
+        ch5 = Channel(channel_id=-1001830001000, client=client, restore_values=True, force_update=True)
         # ch4 = Channel(parsable="-1001180675167", client=client, restore_values=True, force_update=True)
 
         # chat_entity = client.get_entity("https://t.me/some_private_link")

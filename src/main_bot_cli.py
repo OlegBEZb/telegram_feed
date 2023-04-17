@@ -12,12 +12,12 @@ import config
 import logging
 
 from src.bot import bot_client, CLI_COMMANDS, ADMIN_COMMANDS, START_MESSAGE, ABOUT_MESSAGE, FEEDBACK_MESSAGE
-from src.common.utils import list_to_str_newline, get_display_name, get_project_root
+from src.common.utils import list_to_str_newline
+from src.common.get_project_root import get_project_root
 from src.bot.bot_utils import add_to_channel, get_answer_in_conv, get_users_channel_links
 
-from src.common.database_utils import (get_users, update_users, save_users, get_feeds, get_channels,
-                                       update_channels, delete_users_channel)
-from src.common.database_utils import Channel
+from src.common.database_utils import (get_users, update_users, save_users, get_feeds, delete_users_channel)
+from src.common.channel import Channel, get_display_name, update_channels, get_channels
 
 from src.common.decorators import check_direct
 

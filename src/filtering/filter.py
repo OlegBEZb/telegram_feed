@@ -8,8 +8,10 @@ from telethon.tl.patched import Message
 from telethon.sync import TelegramClient
 from telethon.tl.types import MessageMediaDocument, MessageMediaPhoto, MessageMediaWebPage, MessageMediaPoll
 
-from src.common.utils import get_history, get_message_origins, get_project_root
-from src.common.database_utils import get_rb_filters, Channel
+from src.common.utils import get_history, get_message_origins
+from src.common.get_project_root import get_project_root
+from src.common.database_utils import get_rb_filters
+from src.common.channel import Channel
 
 import logging
 logger = logging.getLogger(__name__)
@@ -77,38 +79,38 @@ def message_is_duplicated(msg: Message, history_messages: List[Message], client:
         for history_msg in history_messages:
             if message_is_same(history_msg, msg):  # TODO: check the case where TypeError: 'NoneType' object is not subscriptable (approximately for history_msg)
                 # the rest of the function is for debugging purposes
-                orig_channel_id1, orig_name1, orig_date1, _, fwd_to_channel_id1, fwd_to_name1, fwd_date1, _ = asyncio.get_event_loop().run_until_complete(get_message_origins(client, history_msg))
-                orig_channel_id2, orig_name2, orig_date2, _, fwd_to_channel_id2, fwd_to_name2, fwd_date2, _ = asyncio.get_event_loop().run_until_complete(get_message_origins(client, msg))
-                if fwd_to_name1 is None:  # channel 1 has it's own post
-                    if fwd_to_name2 is None:  # channel 2 has it's own post
+                orig_channel1, orig_date1, _, fwd_to_channel1, fwd_date1, _ = asyncio.get_event_loop().run_until_complete(get_message_origins(client, history_msg))
+                orig_channel2, orig_date2, _, fwd_to_channel2, fwd_date2, _ = asyncio.get_event_loop().run_until_complete(get_message_origins(client, msg))
+                if fwd_to_channel1.name is None:  # channel 1 has it's own post
+                    if fwd_to_channel2.name is None:  # channel 2 has it's own post
                         if orig_date1 > orig_date2:
                             logger.debug(
-                                f"Message '{history_msg.message[:20]}...' was published by '{orig_name2}' before '{orig_name1}'")
+                                f"Message '{history_msg.message[:20]}...' was published by '{orig_channel2.name}' before '{orig_channel1.name}'")
                         else:
                             logger.debug(
-                                f"Message '{history_msg.message[:20]}...' was published by '{orig_name1}' before '{orig_name2}'")
+                                f"Message '{history_msg.message[:20]}...' was published by '{orig_channel1.name}' before '{orig_channel2.name}'")
                     else:  # channel 2 has forwarded post
                         if orig_date1 > fwd_date2:
                             logger.debug(
-                                f"Message '{history_msg.message[:20]}...' was published by '{fwd_to_name2}' (forwarded from '{orig_name2}') before '{orig_name1}'")
+                                f"Message '{history_msg.message[:20]}...' was published by '{fwd_to_channel2.name}' (forwarded from '{orig_channel2.name}') before '{orig_channel1.name}'")
                         else:
                             logger.debug(
-                                f"Message '{history_msg.message[:20]}...' was published by '{orig_name1}' before '{fwd_to_name2} (forwarded from '{orig_name2}')")
+                                f"Message '{history_msg.message[:20]}...' was published by '{orig_channel1.name}' before '{fwd_to_channel2.name} (forwarded from '{orig_channel2.name}')")
                 else:  # channel 1 has forwarded post at fwd_date1 date
-                    if fwd_to_name2 is None:  # channel 2 has it's own post
+                    if fwd_to_channel2.name is None:  # channel 2 has it's own post
                         if fwd_date1 > orig_date2:
                             logger.debug(
-                                f"Message '{history_msg.message[:20]}...' was published by '{orig_name2}' before '{fwd_to_name1}' (forwarded from '{orig_name1}')")
+                                f"Message '{history_msg.message[:20]}...' was published by '{orig_channel2.name}' before '{fwd_to_channel1.name}' (forwarded from '{orig_channel1.name}')")
                         else:
                             logger.debug(
-                                f"Message '{history_msg.message[:20]}...' was published by '{fwd_to_name1}' (forwarded from '{orig_name1}') before '{orig_name2}'")
+                                f"Message '{history_msg.message[:20]}...' was published by '{fwd_to_channel1.name}' (forwarded from '{orig_channel1.name}') before '{orig_channel2.name}'")
                     else:  # channel 2 has forwarded post
                         if fwd_date1 > fwd_date2:
                             logger.debug(
-                                f"Message '{history_msg.message[:20]}...' was reposted by '{fwd_to_name2}' at {fwd_date2} (from '{orig_name2}') before '{fwd_to_name1}' at {fwd_date1} (from '{orig_name1}')")
+                                f"Message '{history_msg.message[:20]}...' was reposted by '{fwd_to_channel2.name}' at {fwd_date2} (from '{orig_channel2.name}') before '{fwd_to_channel1.name}' at {fwd_date1} (from '{orig_channel1.name}')")
                         else:
                             logger.debug(
-                                f"Message '{history_msg.message[:20]}...' was reposted by '{fwd_to_name1}' at {fwd_date1} (from '{orig_name1}') before '{fwd_to_name2}' at {fwd_date2} (from '{orig_name2}')")
+                                f"Message '{history_msg.message[:20]}...' was reposted by '{fwd_to_channel1.name}' at {fwd_date1} (from '{orig_channel1.name}') before '{fwd_to_channel2.name}' at {fwd_date2} (from '{orig_channel2.name}')")
                 return True
         return False
     except:
@@ -139,6 +141,105 @@ def message_is_filtered_by_rules(msg: Message, rules_list: List[str]):
         return False
 
 
+def filter_messages_with_func(msg_list: List[Message], filter_func, filtering_details,
+                              filter_name, **filter_func_kwargs) -> List[Message]:
+    """
+    From a list of messages which was planned to be sent removes the ones according to the filter_func.
+    If at least one of the messages in the group is filtered out, the whole group will be dropped
+    as well. But the decision is based on each messages independently.
+
+    Parameters
+    ----------
+    msg_list
+    filter_func
+    filtering_details
+    filter_name
+    filter_func_kwargs
+
+    Returns
+    -------
+
+    """
+    msg_list_clean = []
+    to_drop_group_id = -1
+    to_drop_message_ids = []
+
+    # when a message from a message group to be filtered but some messages from this group have already passed
+    to_drop_groups_after_check = []
+
+    # starting from the oldest. for grouped, the first is text
+    for msg in reversed(msg_list):
+        if filter_func(msg, **filter_func_kwargs):
+            if msg.grouped_id is not None:
+                to_drop_group_id = msg.grouped_id
+                to_drop_groups_after_check.append(to_drop_group_id)
+                to_drop_message = msg.message
+            to_drop_message_ids.append(msg.id)
+        else:
+            if msg.grouped_id != to_drop_group_id:  # no group also counts
+                msg_list_clean.append(msg)
+            else:
+                logger.log(5, f'removed an indirect spam message from to_drop group {to_drop_group_id}. '
+                              f'To_drop message:\n{to_drop_message[:20]}')
+                to_drop_message_ids.append(msg.id)
+    logger.log(5, f'to_drop_message_ids: {to_drop_message_ids}')
+
+    after_check_drop_list = []
+    for msg in msg_list_clean:
+        if msg.grouped_id in to_drop_groups_after_check:
+            after_check_drop_list.append(msg)
+    if after_check_drop_list:
+        logger.info('Some message was filtered in the middle of the group')
+        msg_list_clean = [msg for msg in msg_list_clean if msg not in after_check_drop_list]
+
+    msg_list_clean.reverse()  # for consistency, msg_list is always descending
+
+    # None for passing messages, filter_name from the previous or the current step if filtered out
+    filtering_details = {
+        msg_id: (v if v is not None or msg_id in [m.id for m in msg_list_clean] else filter_name) for
+        msg_id, v in
+        filtering_details.items()}
+
+    return msg_list_clean, filtering_details
+
+
+def filter_groups_with_func(msg_list: List[Message], filter_func, filtering_details,
+                            filter_name, **filter_func_kwargs) -> List[Message]:
+    pass
+    # build a dict for each group and their messages starting from the oldest one (with text)
+    # iterate over the dict and apply the filtering func which works on a group level
+    # concat back the survivors and return
+
+
+def _remove_postfix(msg: Message, postfix_re_pattern_to_ignore=None):
+    if postfix_re_pattern_to_ignore is None:
+        return msg
+    message_postfix_match = re.search(postfix_re_pattern_to_ignore, msg.message)
+    if message_postfix_match:
+        # new_msg = deepcopy(msg)
+        new_msg = msg
+        new_msg.message = re.sub(postfix_re_pattern_to_ignore, '', new_msg.message)  # remove end of text
+        new_msg.entities = [e for e in new_msg.entities if e.offset < message_postfix_match.start()]  # TODO: check border
+        if len(new_msg.entities) == 0:
+            new_msg.entities = None
+        return new_msg
+    else:
+        return msg
+
+
+def _postfix_template2pattern(postfix_template_to_ignore):
+    if postfix_template_to_ignore is None:
+        return None
+
+    def cleanhtml(raw_html):
+        cleantext = re.sub(HTML_pattern, '', raw_html)
+        return cleantext
+
+    template = cleanhtml(postfix_template_to_ignore)
+    pattern = re.sub(r"\{.*?\}", r".*", template)
+    return pattern
+
+
 class Filter:
     def __init__(self, rule_base_check=True, history_check=True, client: TelegramClient=None, dst_ch: Channel = None,
                  use_common_rules=True, postfix_template_to_ignore=None):
@@ -158,7 +259,7 @@ class Filter:
         self.history_check = history_check
         self.client = client
         self.dst_ch = dst_ch
-        self.postfix_re_pattern_to_ignore = self._postfix_template2pattern(postfix_template_to_ignore)
+        self.postfix_re_pattern_to_ignore = _postfix_template2pattern(postfix_template_to_ignore)
         # TODO: apart from adapting text, we need to remove the entities we added...
 
         if self.rule_base_check:
@@ -171,34 +272,6 @@ class Filter:
         if self.history_check and (self.dst_ch is None):
             raise ValueError("If history check is performed, 'dst_ch' parameter has to be provided")
 
-    @staticmethod
-    def _postfix_template2pattern(postfix_template_to_ignore):
-        if postfix_template_to_ignore is None:
-            return None
-
-        def cleanhtml(raw_html):
-            cleantext = re.sub(HTML_pattern, '', raw_html)
-            return cleantext
-
-        template = cleanhtml(postfix_template_to_ignore)
-        pattern = re.sub(r"\{.*?\}", r".*", template)
-        return pattern
-
-    def _remove_postfix(self, msg: Message):
-        if self.postfix_re_pattern_to_ignore is None:
-            return msg
-        message_postfix_match = re.search(self.postfix_re_pattern_to_ignore, msg.message)
-        if message_postfix_match:
-            # new_msg = deepcopy(msg)
-            new_msg = msg
-            new_msg.message = re.sub(self.postfix_re_pattern_to_ignore, '', new_msg.message)  # remove end of text
-            new_msg.entities = [e for e in new_msg.entities if e.offset < message_postfix_match.start()]  # TODO: check border
-            if len(new_msg.entities) == 0:
-                new_msg.entities = None
-            return new_msg
-        else:
-            return msg
-
     def _get_rb_list(self, ) -> List:
         all_rules = get_rb_filters()
         rules = []
@@ -208,90 +281,36 @@ class Filter:
             rules += all_rules[str(self.dst_ch.id)]  # TODO: serialize during reading above?
         return rules
 
-    def filter_messages(self, msg_list: List[Message]) -> List[Message]:
+    def filter_messages(self, msg_list: List[Message], filtering_details) -> List[Message]:
         """
         Returns messages in the original order.
 
         :param msg_list:
         :return:
         """
-        filtering_details = {k.id: None for k in msg_list}
         len_before = len(msg_list)
 
         # TODO: mb split common/personal rb
         if self.rule_base_check and self.checkrules_list != []:
             logger.log(5, f"Performing a rule-based filtering for {self.dst_ch!r}")
-            msg_list, filtering_details = self._filter(msg_list, filter_func=message_is_filtered_by_rules,
-                                                       filtering_details=filtering_details, filter_name='rb',
-                                                       rules_list=self.checkrules_list)
+            msg_list, filtering_details = filter_messages_with_func(msg_list, filter_func=message_is_filtered_by_rules,
+                                                                    filtering_details=filtering_details, filter_name='rb',
+                                                                    rules_list=self.checkrules_list)
         if msg_list and self.history_check:
             logger.debug(f"Performing a history filtering for {self.dst_ch!r}")
             # history has to be more or less global and extended after every message forwarded to my channel
             # instead of querying every time
-            dst_channel_history_messages = asyncio.get_event_loop().run_until_complete(get_history(client=self.client, entity=self.dst_ch.id, limit=100))
+            dst_channel_history_messages = asyncio.get_event_loop().run_until_complete(
+                get_history(client=self.client, channel=self.dst_ch, limit=100))
             dst_channel_history_messages = [msg for msg in dst_channel_history_messages if msg.action is None]  # filter out channel creation, voice calls, etc.
-            dst_channel_history_messages = [self._remove_postfix(msg) for msg in dst_channel_history_messages]
-            msg_list, filtering_details = self._filter(msg_list, filter_func=message_is_duplicated,
-                                                       filtering_details=filtering_details, filter_name='hist',
-                                                       history_messages=dst_channel_history_messages,
-                                                       client=self.client)
+            dst_channel_history_messages = [_remove_postfix(msg, self.postfix_re_pattern_to_ignore) for msg in dst_channel_history_messages]
+            msg_list, filtering_details = filter_messages_with_func(msg_list, filter_func=message_is_duplicated,
+                                                                    filtering_details=filtering_details, filter_name='hist',
+                                                                    history_messages=dst_channel_history_messages,
+                                                                    client=self.client)
         if len_before != len(msg_list):
             logger.debug(f'Before filtering: {len_before}. After: {len(msg_list)}')
         return msg_list, filtering_details
-
-    def _filter(self, msg_list: List[Message], filter_func, filtering_details,
-                filter_name, **filter_func_kwargs) -> List[Message]:
-        """
-        From a list of messages which was planned to be sent removes the ones according to the filter_func.
-        If at least one of the messages in the group is filtered out, the whole group will be dropped
-        as well.
-
-        :param msg_list:
-        :param filter_func:
-        :param filter_func_kwargs:
-        :return:
-        """
-        msg_list_clean = []
-        to_drop_group_id = -1
-        to_drop_message_ids = []
-
-        # when a message from a message group to be filtered but some messages from this group have already passed
-        to_drop_groups_after_check = []
-
-        # starting from the oldest. for grouped, the first is text
-        for msg in reversed(msg_list):
-            if filter_func(msg, **filter_func_kwargs):
-                if msg.grouped_id is not None:
-                    to_drop_group_id = msg.grouped_id
-                    to_drop_groups_after_check.append(to_drop_group_id)
-                    to_drop_message = msg.message
-                to_drop_message_ids.append(msg.id)
-            else:
-                if msg.grouped_id != to_drop_group_id:  # no group also counts
-                    msg_list_clean.append(msg)
-                else:
-                    logger.log(5, f'removed an indirect spam message from to_drop group {to_drop_group_id}. '
-                                  f'To_drop message:\n{to_drop_message[:20]}')
-                    to_drop_message_ids.append(msg.id)
-        logger.log(5, f'to_drop_message_ids: {to_drop_message_ids}')
-
-        after_check_drop_list = []
-        for msg in msg_list_clean:
-            if msg.grouped_id in to_drop_groups_after_check:
-                after_check_drop_list.append(msg)
-        if after_check_drop_list:
-            logger.info('Some message was filtered in the middle of the group')
-            msg_list_clean = [msg for msg in msg_list_clean if msg not in after_check_drop_list]
-
-        msg_list_clean.reverse()  # for consistency, msg_list is always descending
-
-        # None for passing messages, filter_name from the previous or the current step if filtered out
-        filtering_details = {
-            msg_id: (v if v is not None or msg_id in [m.id for m in msg_list_clean] else filter_name) for
-            msg_id, v in
-            filtering_details.items()}
-
-        return msg_list_clean, filtering_details
 
 
 if __name__ == '__main__':

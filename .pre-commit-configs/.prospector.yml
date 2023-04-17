@@ -50,6 +50,7 @@ pycodestyle:
       - E303
       - E128
       - N802
+      - E126
 
 # Pydocstyle is a simple tool to warn about violations of the PEP257 Docstring Conventions. It produces messages for
 # any divergence from the style guide.

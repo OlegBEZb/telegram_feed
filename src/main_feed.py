@@ -11,21 +11,22 @@ import logging
 from typing import List
 
 from telethon import TelegramClient
-from telethon.tl.types import TypeInputPeer, MessageActionGroupCall, MessageActionPinMessage
+from telethon.tl.types import TypeInputPeer, MessageActionGroupCall, MessageActionPinMessage, MessageActionGroupCallScheduled
 from telethon.tl.types import MessageMediaWebPage, WebPage, WebPageEmpty
 from telethon.tl.patched import Message
 from telethon.tl.functions.messages import GetPeerDialogsRequest, ForwardMessagesRequest
 from telethon.errors import (ChannelPrivateError, UsernameNotOccupiedError, MessageIdInvalidError, FloodWaitError,
                              ChatAdminRequiredError, ChatWriteForbiddenError, ChannelInvalidError, MediaEmptyError,
-                             MediaCaptionTooLongError)
+                             MediaCaptionTooLongError, MessageTooLongError, EntityBoundsInvalidError)
 from telethon.extensions import html
 
 
-from src.common.utils import get_history, get_project_root, get_message_origins, get_entity
+from src.common.utils import get_history, get_message_origins
+from src.common.get_project_root import get_project_root
 from src.common.database_utils import (get_last_channel_ids, get_last_bot_id, save_last_bot_ids,
                                        update_last_channel_ids, get_feeds, log_messages,
                                        invert_feeds)
-from src.common.database_utils import Channel
+from src.common.channel import Channel, get_entity
 
 from src import config
 from src.filtering.filter import Filter
@@ -119,7 +120,8 @@ def format_forwarded_msg_as_original(msg: Message, orig_channel: Channel, origin
 
     # replaces other channel signature at the end of the message (should be without entities)
     # but anyway MessageEntityMention remains. Is this a problem?
-    if re.search(r"\n+@[a-z_]+\n*$", new_msg.message):
+    # TODO: move this action to the filtering stage as well to be less dependent on copypasted material
+    if re.search(r"\n+@[a-z_]+\n*$", new_msg.message):  # TODO: fix also 👉@computer_science_and_programming and https://t.me/+Qm9PbhU6Lf0h5wsm
         new_msg.message = re.sub(r"\n+@[a-z_]+\n*$", "", new_msg.message)
 
     postfix = MSG_POSTFIX_TEMPLATE.format(post_link=post_link)
@@ -159,13 +161,11 @@ async def send_msg_list(msg_list: List[Message], bot_client: TelegramClient, pee
         # like here https://stackoverflow.com/questions/64111232/python-telethon-send-album
         # group comes with ascending msg_id
         async with user_client:
-            orig_channel_id, orig_name, _, original_msg_id, _, _, _, _ = await get_message_origins(user_client,
-                                                                                                   msg_list[0])
-            orig_channel = Channel(channel_id=orig_channel_id, channel_name=orig_name, client=client)
+            orig_channel, _, original_msg_id, _, _, _ = await get_message_origins(user_client, msg_list[0])
 
         album_msg_list = []
         for msg in msg_list:
-            album_msg = await ensure_media_access(msg, user_client, bot_client, orig_channel_id)
+            album_msg = await ensure_media_access(msg, user_client, bot_client, orig_channel.id)
             album_msg_list.append(album_msg)
 
         async with bot_client:
@@ -178,14 +178,19 @@ async def send_msg_list(msg_list: List[Message], bot_client: TelegramClient, pee
                                               link_preview=True)  # wrapper for functions.messages.SendMessageRequest
             except MediaEmptyError:
                 logger.error(f"Unable to send message to {peer_to_forward_to}\n{new_msg.stringify()}\n")
+            except MediaCaptionTooLongError:
+                logger.error(f"Unable to send too long media caption to {peer_to_forward_to} "
+                             f"with msg len: {len(new_msg.message)} (caused by SendMultiMediaRequest)")
+            except EntityBoundsInvalidError:
+                logger.error(f"Some of provided entities have invalid bounds (length is zero or out of the boundaries "
+                             f"of the string) (caused by SendMultiMediaRequest)\n{new_msg.message}\n{new_msg.entities}")
 
     else:  # if the messages are independent, process one by one with a common .message extension
         for msg in msg_list:
             async with user_client:
-                orig_channel_id, orig_name, _, original_msg_id, _, _, _, _ = await get_message_origins(user_client, msg)
-                orig_channel = Channel(channel_id=orig_channel_id, channel_name=orig_name, client=client)
+                orig_channel, _, original_msg_id, _, _, _ = await get_message_origins(user_client, msg)
 
-            msg = await ensure_media_access(msg, user_client, bot_client, orig_channel_id)
+            msg = await ensure_media_access(msg, user_client, bot_client, orig_channel.id)
 
             # TODO: groups are not together
             async with bot_client:
@@ -193,24 +198,33 @@ async def send_msg_list(msg_list: List[Message], bot_client: TelegramClient, pee
                 # from docs: If you want to “forward” a message without the forward header (the “forwarded from” text),
                 # you should use send_message with the original message instead. This will send a copy of it.
                 media = new_msg.media
+                link_preview = False
                 if isinstance(new_msg.media, MessageMediaWebPage):
                     if isinstance(new_msg.media.webpage, WebPage):  # Webpage preview
                         media = new_msg.media.webpage.document or new_msg.media.webpage.photo
                     elif isinstance(new_msg.media.webpage, WebPageEmpty):
                         media = None  # Bots can't access web previews. TODO: create myself?
+                        link_preview = True
                 try:
                     await bot_client.send_message(entity=peer_to_forward_to,
                                                   message=new_msg.message,
                                                   file=media,  # TODO: make this a list of all the messages in a group
                                                   formatting_entities=new_msg.entities,
-                                                  link_preview=True)  # wrapper for functions.messages.SendMessageRequest
+                                                  link_preview=link_preview)  # wrapper for functions.messages.SendMessageRequest
                 except MediaEmptyError:
                     logger.error(f"Unable to send message to {peer_to_forward_to}\n{new_msg.stringify()}\n"
                                  f"with media\n{media.stringify()}\n(caused by SendMediaRequest)")
-                # TODO: check according to the publically available limitations?
-                except MediaCaptionTooLongError:
+                except MessageTooLongError:
+                    # TODO: check according to the publically available limitations?
                     logger.error(f"Unable to send too long message to {peer_to_forward_to} "
                                  f"with msg len: {len(new_msg.message)} (caused by SendMediaRequest)")
+                except MediaCaptionTooLongError:  # 1148
+                    logger.error(f"Unable to send too long media caption to {peer_to_forward_to} "
+                                 f"with msg len: {len(new_msg.message)} (caused by SendMediaRequest)")
+                except EntityBoundsInvalidError:
+                    logger.error(
+                        f"Some of provided entities have invalid bounds (length is zero or out of the boundaries "
+                        f"of the string) (caused by SendMultiMediaRequest)\n{new_msg.message}\n{new_msg.entities}")
 
 
 async def ensure_media_access(msg, user_client, bot_client, orig_channel_id):
@@ -221,7 +235,7 @@ async def ensure_media_access(msg, user_client, bot_client, orig_channel_id):
         last_expected_id = get_last_bot_id() - 5
         last_actual_id = last_expected_id
         last_msg = None
-        for i in range(last_expected_id, last_expected_id + 50):
+        for i in range(last_expected_id, last_expected_id + 30):
             bot_from_user_msg = await bot_client.get_messages(config.my_id, ids=i)
             if bot_from_user_msg:
                 # print(i, bot_from_user_msg.date)
@@ -255,14 +269,14 @@ async def ensure_media_access(msg, user_client, bot_client, orig_channel_id):
 
 # TODO: add parameter send_as_mine/forward
 # TODO: why link is used!? Switch to id
-def group_and_forward_msgs(bot_client: TelegramClient, from_peer: TypeInputPeer, msg_list: List[Message],
+def group_and_forward_msgs(bot_client: TelegramClient, src_ch: Channel, msg_list: List[Message],
                            peer_to_forward_to: TypeInputPeer, user_client: TelegramClient = None):
     """
     Forward messages in small pieces.
 
     :param bot_client:
     :param personal_client:
-    :param from_peer:
+    :param src_ch:
     :param msg_list:
     :param peer_to_forward_to:
     :return:
@@ -273,7 +287,7 @@ def group_and_forward_msgs(bot_client: TelegramClient, from_peer: TypeInputPeer,
 
     for msg in reversed(msg_list):  # starting from the chronologically first
         # client.send_message(peer_to_forward_to, msg)
-        if asyncio.get_event_loop().run_until_complete(msg_is_action(msg=msg, client=bot_client, from_peer=from_peer, peer_to_forward_to=peer_to_forward_to)):
+        if asyncio.get_event_loop().run_until_complete(msg_is_action(msg=msg, client=bot_client, from_peer=src_ch, peer_to_forward_to=peer_to_forward_to)):
             continue
 
         if msg.grouped_id is not None:  # the current message is a part of a group
@@ -284,7 +298,7 @@ def group_and_forward_msgs(bot_client: TelegramClient, from_peer: TypeInputPeer,
                 grouped_msg_list, non_grouped_msg_list = resolve_and_send_groups(bot_client=bot_client,
                                                                                  grouped_msg_list=grouped_msg_list,
                                                                                  non_grouped_msg_list=non_grouped_msg_list,
-                                                                                 from_peer=from_peer,
+                                                                                 from_peer=src_ch.id,
                                                                                  peer_to_forward_to=peer_to_forward_to,
                                                                                  last_grouped_id=last_grouped_id,
                                                                                  user_client=user_client)
@@ -294,7 +308,7 @@ def group_and_forward_msgs(bot_client: TelegramClient, from_peer: TypeInputPeer,
                               f"Total size: {len(grouped_msg_list)}")
         else:  # the current message is a single message
             grouped_msg_list = send_group_if_non_empty(msg_list=grouped_msg_list, bot_client=bot_client,
-                                                       from_peer=from_peer,
+                                                       from_peer=src_ch.id,
                                                        peer_to_forward_to=peer_to_forward_to,
                                                        last_grouped_id=last_grouped_id,
                                                        user_client=user_client)
@@ -304,7 +318,7 @@ def group_and_forward_msgs(bot_client: TelegramClient, from_peer: TypeInputPeer,
     _, _ = resolve_and_send_groups(bot_client=bot_client,
                                    grouped_msg_list=grouped_msg_list,
                                    non_grouped_msg_list=non_grouped_msg_list,
-                                   from_peer=from_peer,
+                                   from_peer=src_ch.id,
                                    peer_to_forward_to=peer_to_forward_to,
                                    last_grouped_id=last_grouped_id,
                                    user_client=user_client)
@@ -330,19 +344,23 @@ async def msg_is_action(msg, client, from_peer, peer_to_forward_to):
             # TODO: check if regular messages have action. Looks like not
             if isinstance(msg.action, (MessageActionGroupCall, MessageActionGroupCall)):
                 if msg.action.duration is None:
-                    logger.info(f"{from_peer} started a call")
+                    logger.info(f"{from_peer!r} started a call")
                     await client.send_message(peer_to_forward_to, f"{from_peer} started a call")
                 else:
                     logger.info(f"{from_peer} ended a call")
                     await client.send_message(peer_to_forward_to, f"{from_peer} ended a call")
                 return True
             if isinstance(msg.action, MessageActionPinMessage):
-                logger.info(f"{from_peer} pinned a message")
+                logger.info(f"{from_peer!r} pinned a message")
                 await client.send_message(peer_to_forward_to, f"{from_peer} pinned a message")
+                return True
+            if isinstance(msg.action, MessageActionGroupCallScheduled):
+                logger.info(f"{from_peer!r} scheduled a group call")
+                await client.send_message(peer_to_forward_to, f"{from_peer} scheduled a group call at {msg.action.schedule_date} UTC")
                 return True
             return False
     except ChatWriteForbiddenError:
-        logger.error(f"{await client.get_me()} can't forward from {from_peer} to {peer_to_forward_to} "
+        logger.error(f"{await client.get_me()} can't forward from {from_peer!r} to {peer_to_forward_to} "
                      f"(caused by ForwardMessagesRequest)")  # add the owner as well
 
 
@@ -424,7 +442,7 @@ def main(user_client: TelegramClient, bot_client: TelegramClient, recommender):
                                                                             user_client=user_client)
 
                     # TODO: replace peers to channels to improve visibility
-                    group_and_forward_msgs(bot_client=bot_client, from_peer=src_ch.id, msg_list=messages_checked_list,
+                    group_and_forward_msgs(bot_client=bot_client, src_ch=src_ch, msg_list=messages_checked_list,
                                            peer_to_forward_to=dst_ch.id, user_client=user_client)
 
 
@@ -450,21 +468,22 @@ def main(user_client: TelegramClient, bot_client: TelegramClient, recommender):
 def select_messages_for_dst_channel(msg_list: List[Message], src_ch: Channel, dst_ch: Channel,
                                     recommender, user_client: TelegramClient) -> List[Message]:
     try:
+        filtering_details = {k.id: None for k in msg_list}  # may be removed as initialized if empty inside the function
         # TODO: perform history check later wrt the dst channel and it's rb list
         with user_client:
             # logger.error('FILTERING IS NOT PERFORMED')
             filter_component = Filter(rule_base_check=True, history_check=True, client=user_client,
                                       dst_ch=dst_ch, use_common_rules=True,
                                       postfix_template_to_ignore=MSG_POSTFIX_TEMPLATE)
-            messages_checked_list, filtering_details = filter_component.filter_messages(msg_list)
+            messages_checked_list, filtering_details = filter_component.filter_messages(msg_list, filtering_details)
 
-        for msg in messages_checked_list:
-            with user_client:
-                recommend_prob = recommender.predict_proba(msg, client=user_client,
-                                                           user_channel_link=dst_ch.link)
+            if messages_checked_list:
+                messages_checked_list, filtering_details = cb_recommender.filter_messages(msg_list=messages_checked_list,
+                                                                                          filtering_details=filtering_details,
+                                                                                          user_client=user_client,
+                                                                                          user_channel_link=dst_ch.link,
+                                                                                          threshold=0.47)
 
-        if len(set(filtering_details.values())) > 2:
-            print(filtering_details)
         with user_client:  # TODO: swich to async with?
             asyncio.get_event_loop().run_until_complete(log_messages(
                 client=user_client,
@@ -482,7 +501,7 @@ def select_messages_for_dst_channel(msg_list: List[Message], src_ch: Channel, ds
     return messages_checked_list
 
 
-def check_new_channel_messages(src_ch, last_channel_ids, client):
+def check_new_channel_messages(src_ch: Channel, last_channel_ids, client):
     try:
         with client:
             # solution based on the last index mentioned in the json. We can't just check if there are some unread
@@ -493,7 +512,7 @@ def check_new_channel_messages(src_ch, last_channel_ids, client):
             # peer=InputPeerChannel(entity_id, entity_hash)
             messages = None
             messages = asyncio.get_event_loop().run_until_complete(
-                get_history(client=client, min_id=last_channel_ids[src_ch.id], entity=src_ch.id, limit=30))
+                get_history(client=client, channel=src_ch, min_id=last_channel_ids[src_ch.id], limit=30))
             if len(messages) == 0:
                 try:
                     # solution based on telegram dialog fields
@@ -512,14 +531,14 @@ def check_new_channel_messages(src_ch, last_channel_ids, client):
                         logger.info(f"Channel {src_ch} is marked as unread manually")
                         # if fetched message.grouped_id is not None, fetch until group changes and then send
                         unread_mark_read_n_messages = 4
-                        messages = asyncio.get_event_loop().run_until_complete(get_history(client=client,
+                        messages = asyncio.get_event_loop().run_until_complete(get_history(client=client, channel=src_ch,
                                                                                            min_id=dialog.top_message - unread_mark_read_n_messages,
-                                                                                           entity=src_ch.id,
                                                                                            limit=unread_mark_read_n_messages))
                     else:  # this should not be triggered and has to be removed
                         logger.info(f"Channel {src_ch} has {dialog.unread_count} unread posts")
-                        messages = asyncio.get_event_loop().run_until_complete(get_history(client=client, min_id=dialog.read_inbox_max_id, entity=src_ch.id,
-                                               limit=dialog.unread_count))
+                        messages = asyncio.get_event_loop().run_until_complete(
+                            get_history(client=client, channel=src_ch, min_id=dialog.read_inbox_max_id,
+                                        limit=dialog.unread_count))
     # TODO: remove channel from database or fetch the recent info
     except UsernameNotOccupiedError:
         logger.error(f"{src_ch} is not found.\nConsider removing from all readlists", exc_info=True)

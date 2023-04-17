@@ -5,8 +5,8 @@ import telethon.password as pwd_mod
 
 from src.bot import bot_client
 from src.common.database_utils import get_users, get_feeds, update_feed, save_feeds
-from src.common.utils import list_to_str_newline, get_display_name
-from src.common.database_utils import Channel
+from src.common.utils import list_to_str_newline
+from src.common.channel import Channel, get_display_name
 
 from src import config
 
@@ -44,7 +44,7 @@ async def add_to_channel(src_ch: Channel, dst_ch: Channel, sender_id):  # TODO: 
 
     if len(feeds[dst_ch.id]) > 20:
         logger.info(f"Channel {dst_ch} faced a limit of source channels")
-        await bot_client.send_message(sender_id, "You are not allowed to have more than 20 source channel")
+        await bot_client.send_message(sender_id, "You are not allowed to have more than 20 source channels")
         return
 
     existing_dst_channel_ids = list(feeds.keys())

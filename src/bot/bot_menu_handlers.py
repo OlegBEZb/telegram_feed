@@ -6,11 +6,13 @@ from telethon.events import StopPropagation
 
 from src.bot import bot_client, NO_ARG_CLI_COMMANDS, CLI_COMMANDS
 from src.common.database_utils import get_users, get_feeds
-from src.common.database_utils import Channel
+from src.common.channel import Channel, get_display_name
 from src.bot.bot_utils import add_to_channel, get_answer_in_conv
 
-from src.common.utils import get_display_name, chunks
+from src.common.utils import chunks
 from src.common.decorators import check_direct
+
+from src import config
 
 import logging
 logger = logging.getLogger(__name__)
@@ -189,9 +191,9 @@ async def button_button_add_to_channel(event):
     # this duplicates the code in add_to_channel but this helps to save time in case the user pressed the button so
     # there is no reason even for entering the value
     feeds = get_feeds()
-    if len(feeds[dst_ch.id]) > 20:
+    if len(feeds[dst_ch.id]) > 20 and (sender_id not in [config.my_id, 194124545]):
         logger.info(f"Channel {dst_ch} faced a limit of source channels")
-        await bot_client.send_message(sender_id, "You are not allowed to have more than 20 source channel")
+        await bot_client.send_message(sender_id, "You are not allowed to have more than 20 source channels")
         await command_menu(event)
         return
 
@@ -202,6 +204,8 @@ async def button_button_add_to_channel(event):
         return
 
     try:
+        # TODO: problem. due to this, usual client doesn't have this channel in cache
+        # TODO: check: will it work with user_client_for_bot_cli_path = os.path.join(get_project_root(), 'src/telefeed_client')
         src_ch = Channel(channel_link=src_ch_link, client=bot_client)
     except:
         await event.reply("Was not able to process the argument. Start from pressing the button once again")

@@ -1,11 +1,8 @@
 import time
 import os
-from typing import Union
-from copy import deepcopy
-from pathlib import Path
 
-from telethon import TelegramClient, utils as tutils
-from telethon.tl.functions.messages import GetHistoryRequest, CheckChatInviteRequest, ImportChatInviteRequest
+from telethon import TelegramClient
+from telethon.tl.functions.messages import CheckChatInviteRequest, ImportChatInviteRequest
 from telethon.tl.patched import Message
 from telethon.tl.types import MessageFwdHeader, ReactionEmoji, ReactionCustomEmoji
 from telethon.errors.rpcerrorlist import ChannelPrivateError, FloodWaitError
@@ -13,36 +10,28 @@ from telethon.errors.rpcerrorlist import ChannelPrivateError, FloodWaitError
 from src import config
 
 import logging
+
+from src.common.channel import get_display_name, Channel
+from src.common.get_project_root import get_project_root
+
 logger = logging.getLogger(__name__)
 
 
-def get_project_root() -> Path:
-    path = Path(__file__).parent.parent.parent
-    logger.log(5, f'fetched project root: {path}')
-    return Path(__file__).parent.parent.parent
-
-
-# TODO: check that it's a link
-def check_channel_link_correctness(channel_link: str) -> str:
-    """
-    Checks the correctness of the channel name
-
-    :param channel_link:
-    :return:
-    """
-    channel_link_before = channel_link
-    channel_link = channel_link.replace("@", "https://t.me/")
-    if channel_link.find("https://t.me/") == -1:
-        channel_link = channel_link.replace("t.me/", "https://t.me/")
-    if channel_link.find("https://t.me/") == -1:
-        # return "error"
-        raise ValueError(f"Channel of inappropriate format: {channel_link}")
-    logger.debug(f"Checked link: '{channel_link_before}' -> '{channel_link}'")
-
-    return channel_link
-
-
 def get_reactions(msg: Message):
+    """
+    If only one reaction is allowed, then through all the ReactionCount objects there will be only one with
+    chosen_order=0 while the remaining will have chosen_order=None. This chosen_order will always be zero for the
+    last selected reaction.
+    Important to note that in case of album, reaction is given to the textual message (first one).
+
+    Parameters
+    ----------
+    msg
+
+    Returns
+    -------
+
+    """
     if msg.reactions is not None:
         reactions = msg.reactions.results
         d = {}
@@ -55,105 +44,13 @@ def get_reactions(msg: Message):
     return None
 
 
-# TODO: process get entity via the same func for all get_* and catch errors
-async def get_entity(client, entity):
-    try:
-        entity = await client.get_entity(entity)
-        return entity
-    except ChannelPrivateError:
-        logger.error(
-            f'Failed to get_entity due to ChannelPrivateError')
-        return None
-    except:
-        logger.error(f'Failed to get_entity with client\n{await client.get_me()}\nand entity of type {type(entity)}\n{entity}')
-        return None
-        # raise
-    # TODO: catch ValueError("Could not find any entity corresponding to") for all get_*. occurs when searching by name
-
-
-# TODO: replace empty to None?
-# TODO: try to call the func only from Channel - this gives a chance to restore
-async def get_display_name(client: TelegramClient, entity):
-    # https://stackoverflow.com/questions/61456565/how-to-get-the-chat-or-group-name-of-incoming-telegram-message-using-telethon
-    """
-    ``client`` and ``entity`` are as documented in `get_channel_link`
-    """
-    # logger.debug('Getting entity in get_display_name')
-    entity = await get_entity(client, entity)
-    if entity is None:
-        return None
-    else:
-        return tutils.get_display_name(entity)  # works also for users' names
-
-
-# TODO: vectorize
-async def get_channel_link(client: TelegramClient, entity):
-    """
-    for string it makes a request, for id it only makes one there was stored access_hash in session.
-    relevant chats and users are sent with events, if you don't have it in cache, it won't make a request and
-    fail locally.
-
-    :param client: works both with bot and personal clients TODO check bot
-    :param entity (`str` | `int` | :tl:`Peer` | :tl:`InputPeer`):
-                If a username or invite link is given, **the library will
-                use the cache**. This means that it's possible to be using
-                a username that *changed* or an old invite link (this only
-                happens if an invite link for a small group chat is used
-                after it was upgraded to a mega-group).
-                If the username or ID from the invite link is not found in
-                the cache, it will be fetched. The same rules apply to phone
-                numbers (``'+34 123456789'``) from people in your contact list.
-                If an exact name is given, it must be in the cache too. This
-                is not reliable as different people can share the same name
-                and which entity is returned is arbitrary, and should be used
-                only for quick tests.
-                If a positive integer ID is given, the entity will be searched
-                in cached users, chats or channels, without making any call.
-                If a negative integer ID is given, the entity will be searched
-                exactly as either a chat (prefixed with ``-``) or as a channel
-                (prefixed with ``-100``).
-                If a :tl:`Peer` is given, it will be searched exactly in the
-                cache as either a user, chat or channel.
-                If the given object can be turned into an input entity directly,
-                said operation will be done.
-                Unsupported types will raise ``TypeError``.
-                If the entity can't be found, ``ValueError`` will be raised.
-    :return:
-    """
-    logger.debug('Getting entity in get_channel_link')
-    entity = await get_entity(client, entity)
-    if entity is None:
-        return None
-    else:
-        if hasattr(entity, 'username'):
-            if entity.username is None:
-                logger.error(f'Channel {entity} has None .username field')
-                return None
-            return f"https://t.me/{entity.username}"
-
-
-async def get_channel_id(client: TelegramClient, entity) -> int:
-    """
-    ``client`` and ``entity`` are as documented in `get_channel_link`
-    """
-    # works with channel link, name, integer ID (with and without -100).
-    # doesn't work with str ID
-    # only for user API
-    if isinstance(entity, str) and entity.lstrip('-').isdigit():
-        entity = int(entity)
-    logger.debug('Getting input entity in get_channel_id')
-    entity = await client.get_input_entity(entity)
-    return int('-100' + str(entity.channel_id))
-
-
-# TODO: add get_user_id?
-
-
 # TODO: extension to the end of the group. https://stackoverflow.com/questions/74084075/telethon-or-pyrogram-forward-whole-album-instead-of-last-media-without-caption
 # TODO: add limit -1 for the whole history
-# TODO: migrate to .get_messages()
-async def get_history(client: TelegramClient, **get_history_request_kwargs) -> 'hints.TotalList':
+# TODO: accept Channel as argument and try to restore with ID first, and link second. Only after that return exception
+async def get_history(client: TelegramClient, channel: Channel = None, **get_history_request_kwargs) -> 'hints.TotalList':
     """
+    Accepts channel or entity inside the kwargs. Channel has higher weight and ID and link from it will be used.
+    But anything may be passed: channel may be None and kwargs have entity
     For reference: https://core.telegram.org/api/offsets.
 
     :param client: only user client is accepted
@@ -168,6 +65,10 @@ async def get_history(client: TelegramClient, **get_history_request_kwargs) -> '
     :param min_id: 	If a positive value was transferred, the method will return only messages with IDs more than
     min_id
 
+    Parameters
+    ----------
+    channel
+
     """
     get_history_default = {'offset_id': 0, 'offset_date': 0,
                            'add_offset': 0, 'limit': 1,
@@ -175,54 +76,54 @@ async def get_history(client: TelegramClient, **get_history_request_kwargs) -> '
     # the dict on the right takes precedence
     get_history_request_kwargs = get_history_default | get_history_request_kwargs
 
-    try:
-        messages = await client.get_messages(**get_history_request_kwargs)
-    except ChannelPrivateError:
-        logger.error(f'Tried to perform get_history on a private/banned channel. User client has to be a part of it. '
-                     f'get_history_request_kwargs\n{get_history_request_kwargs}')  # may be even public but your bot has to be added
-        raise
-    except FloodWaitError as e:
-        logger.info(f'Got FloodWaitError cause by GetHistoryRequest. Have to sleep {e.seconds} seconds / {e.seconds / 60:.1f} minutes / '
-                    f'{e.seconds / 60 / 60:.1f} hours\nget_history_request_kwargs\n{get_history_request_kwargs}')
-        raise
-    except:
-        logger.error(f'Unknown fail in get_history. get_history_request_kwargs\n{get_history_request_kwargs}')
-        raise
+    candidate_kwargs = []
+    if channel is not None:
+        if channel.id is not None:
+            candidate_kwargs.append(get_history_request_kwargs | {'entity': channel.id})
+        if channel.link is not None:
+            candidate_kwargs.append(get_history_request_kwargs | {'entity': channel.link})
+    if 'entity' in get_history_request_kwargs:
+        candidate_kwargs.append(get_history_request_kwargs)
+
+    for kw in candidate_kwargs:
+        try:
+            messages = await client.get_messages(**kw)
+            break
+        except ChannelPrivateError:
+            logger.error(f'Tried to perform get_history on a private/banned channel. User client has to be a part of it. '
+                         f'get_history_request_kwargs\n{get_history_request_kwargs}')  # may be even public but your bot has to be added
+            raise
+        except FloodWaitError as e:
+            logger.info(f'Got FloodWaitError cause by GetHistoryRequest. Have to sleep {e.seconds} seconds / {e.seconds / 60:.1f} minutes / '
+                        f'{e.seconds / 60 / 60:.1f} hours\nget_history_request_kwargs\n{get_history_request_kwargs}')
+            raise
+        except:
+            logger.error(f'Unknown fail in get_history. client:\n{await client.get_me()}\nget_history_request_kwargs\n{get_history_request_kwargs}', exc_info=True)
+            # raise
 
     return messages
 
 
 # TODO: not use name here at all. Only ID. Everything else is to be found by Channel
-# TODO: return original message ID
 async def get_message_origins(client: TelegramClient, msg: Message):
+    orig_channel_id = None
+    orig_name = None
+
+    fwd_to_name = None
     try:
         if isinstance(msg.fwd_from, MessageFwdHeader):  # if message was forwarded to a place where we got it
             if msg.fwd_from.from_id is not None:
                 orig_channel_id = int('-100' + str(msg.fwd_from.from_id.channel_id))
-                try:
-                    orig_name = await get_display_name(client, orig_channel_id)
-                except ChannelPrivateError:
-                    logger.error(f'Failed to define the name of the original channel id {orig_channel_id} because of privacy')  # is not happen as captured in get_entity
-                    orig_name = f'_Private_channel_{orig_channel_id}_'  # TODO: remove this confusing state and restore via Channel
-                # orig_channel = Channel(channel_id=orig_channel_id, client=client)  # doesn't work due to circular import
-                # orig_name = orig_channel.name
             elif msg.fwd_from.from_name is not None:
-                orig_channel_id = None
                 orig_name = msg.fwd_from.from_name
-            else:
-                logger.error(f'Failed to define the origins of the message\n{msg.stringify()}')
-                orig_channel_id = None
-                orig_name = '_Undefined_'
 
             fwd_to_channel_id = msg.chat_id
             orig_date = msg.fwd_from.date
             fwd_date = msg.date
-            fwd_to_name = await get_display_name(client, msg.chat_id)
             orig_post_id = msg.fwd_from.channel_post
             fwd_to_post_id = msg.id
         else:  # this message is original
             orig_date = msg.date
-            orig_name = await get_display_name(client, msg.chat_id)
             orig_channel_id = msg.chat_id
             orig_post_id = msg.id
             fwd_to_channel_id, fwd_to_name, fwd_date, fwd_to_post_id = None, None, None, None
@@ -230,7 +131,9 @@ async def get_message_origins(client: TelegramClient, msg: Message):
         logger.error(f"Failed to get source channel name and date\n{msg.stringify()}", exc_info=True)
         return None, None, None, None, None, None
 
-    return orig_channel_id, orig_name, orig_date, orig_post_id, fwd_to_channel_id, fwd_to_name, fwd_date, fwd_to_post_id
+    orig_channel = Channel(channel_id=orig_channel_id, channel_name=orig_name, client=client)
+    fwd_to_channel = Channel(channel_id=fwd_to_channel_id, channel_name=fwd_to_name, client=client)
+    return orig_channel, orig_date, orig_post_id, fwd_to_channel, fwd_date, fwd_to_post_id
 
 
 def CheckCorrectlyPrivateLink(client: TelegramClient, req):
@@ -302,7 +205,7 @@ async def extract_msg_features(msg: Message, client: TelegramClient = None, **kw
     result_dict['media_type'] = get_msg_media_type(msg)
 
     if result_dict['message_text'] is None:
-        result_dict.update({'empty_text': True, 'message_text': ''})
+        result_dict.update({'empty_text': True, 'message_text': ''})  # why empty string is selected?
     else:
         result_dict.update({'empty_text': False})
 
@@ -312,17 +215,26 @@ async def extract_msg_features(msg: Message, client: TelegramClient = None, **kw
         result_dict['grouped'] = True
 
     if client is not None:
-        orig_channel_id, orig_name, orig_date, orig_post_id, fwd_to_channel_id, fwd_to_name, fwd_date, fwd_to_post_id = await get_message_origins(client, msg)
+        orig_channel, orig_date, orig_post_id, fwd_to_channel, fwd_date, fwd_to_post_id = await get_message_origins(client, msg)
 
-        result_dict['original_channel_name'] = orig_name
+        result_dict['original_channel_id'] = orig_channel.id
+        result_dict['original_channel_link'] = orig_channel.link
+        result_dict['original_channel_name'] = orig_channel.name
+
         result_dict['original_post_timestamp'] = orig_date  # TODO: add difference with the time of processing
-        if fwd_to_name is None:
-            result_dict['src_channel_name'] = orig_name
+        if fwd_to_channel.name is None:
+            result_dict['src_channel_id'] = orig_channel.id
+            result_dict['src_channel_link'] = orig_channel.link
+            result_dict['src_channel_name'] = orig_channel.name
+
             result_dict['src_forwarded_from_original_timestamp'] = None
 
             result_dict['original_content'] = True
         else:
-            result_dict['src_channel_name'] = fwd_to_name
+            result_dict['src_channel_id'] = fwd_to_channel.id
+            result_dict['src_channel_link'] = fwd_to_channel.link
+            result_dict['src_channel_name'] = fwd_to_channel.name
+
             result_dict['src_forwarded_from_original_timestamp'] = fwd_date
 
             result_dict['original_content'] = False
@@ -351,24 +263,23 @@ if __name__ == '__main__':
     client = start_client(user_client_path)
 
     messages = asyncio.get_event_loop().run_until_complete(
-        get_history(client=client, min_id=68326-10, entity=-1001099860397, limit=30))
+        get_history(client=client, channel=None, min_id=68326 - 10, entity=-1001099860397, limit=30))
 
-    # entity = asyncio.get_event_loop().run_until_complete(client.get_entity("https://t.me/labelmedata"))
-    # entity = asyncio.get_event_loop().run_until_complete(client.get_entity(-1001389289917))
-    #
-    # entity = asyncio.get_event_loop().run_until_complete(client.get_input_entity("https://t.me/labelmedata"))
-    # entity = asyncio.get_event_loop().run_until_complete(client.get_input_entity(-1001389289917))
-    #
-    # link = asyncio.get_event_loop().run_until_complete(get_channel_link(client, -1001389289917))
-    # link = asyncio.get_event_loop().run_until_complete(get_channel_link(client, -1001466120158))
-    # print('link', link)
-    # ch_id = asyncio.get_event_loop().run_until_complete(get_channel_id(client, "https://t.me/labelmedata"))
-    # print('ch_id', ch_id)
+    messages = asyncio.get_event_loop().run_until_complete(
+        get_history(client=client, channel=None, entity='https://t.me/myfavoritejumoreski', limit=11))
+
+    messages = asyncio.get_event_loop().run_until_complete(
+        get_history(client=client, channel=None, entity=-1001143742161, limit=11))
+
+    messages = asyncio.get_event_loop().run_until_complete(
+        get_history(client=client, channel=Channel(channel_id=-1001143742161), limit=11))
+
+
     # asyncio.get_event_loop().run_until_complete(client.send_message('me', 'Hello to myself!'))
 
     # res = asyncio.get_event_loop().run_until_complete(client._get_entity_from_string("https://t.me/labelmedata"))
     # res = asyncio.get_event_loop().run_until_complete(client._get_entity_from_string("-1001389289917"))
-    res = asyncio.get_event_loop().run_until_complete(client.get_entity(-1001389289917))
+    res = asyncio.get_event_loop().run_until_complete(client.get_entity(-1001143742161))
     res = asyncio.get_event_loop().run_until_complete(client.get_entity('LabelMe - DataScience blog'))
     # res = asyncio.get_event_loop().run_until_complete(client.get_entity("+31643198671"))
     # res = asyncio.get_event_loop().run_until_complete(client._get_entity_from_string("+31643198671"))

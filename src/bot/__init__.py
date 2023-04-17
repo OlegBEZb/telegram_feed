@@ -1,7 +1,7 @@
 import os
 from telethon import TelegramClient
 
-from src.common.utils import get_project_root
+from src.common.get_project_root import get_project_root
 from src import config
 
 bot_client_path = os.path.join(get_project_root(), f'src/bot_{config.bot_id}')
