@@ -35,9 +35,9 @@ ARG_CLI_COMMANDS = {'/channel_info': ["⚙️ show channel info",
                                             " Requires 2 arguments from you: what channel to add and where to add. These two"
                                             " arguments are both links to telegram channels."
                                             "\nExample: /add_to_channel t.me/channel_of_interest t.me/your_destination_channel")],
-                    # '/delete_channel': ["❌ delete channel",
-                    #                     ("Removes database record about your destination channel with all its "
-                    #                      "subscriptions. The channel remains but no longer connected to the bot.")]
+                    '/delete_channel': ["❌ delete channel",
+                                        ("Removes database record about your destination channel with all its "
+                                         "subscriptions. The channel remains but no longer connected to the bot.")]
                     }
 CLI_COMMANDS = dict(NO_ARG_CLI_COMMANDS, **ARG_CLI_COMMANDS)
 

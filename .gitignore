@@ -19,4 +19,4 @@ test.py
 src/config_test.py
 src/config.py
 src/data
-
+src/filtering/catboost_info

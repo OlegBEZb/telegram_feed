@@ -227,14 +227,14 @@ def _remove_postfix(msg: Message, postfix_re_pattern_to_ignore=None):
         return msg
 
 
+def cleanhtml(raw_html):
+    cleantext = re.sub(HTML_pattern, '', raw_html)
+    return cleantext
+
+
 def _postfix_template2pattern(postfix_template_to_ignore):
     if postfix_template_to_ignore is None:
         return None
-
-    def cleanhtml(raw_html):
-        cleantext = re.sub(HTML_pattern, '', raw_html)
-        return cleantext
-
     template = cleanhtml(postfix_template_to_ignore)
     pattern = re.sub(r"\{.*?\}", r".*", template)
     return pattern
@@ -297,7 +297,7 @@ class Filter:
                                                                     filtering_details=filtering_details, filter_name='rb',
                                                                     rules_list=self.checkrules_list)
         if msg_list and self.history_check:
-            logger.debug(f"Performing a history filtering for {self.dst_ch!r}")
+            logger.log(8, f"Performing a history filtering for {self.dst_ch!r}")
             # history has to be more or less global and extended after every message forwarded to my channel
             # instead of querying every time
             dst_channel_history_messages = asyncio.get_event_loop().run_until_complete(

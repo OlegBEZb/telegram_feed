@@ -8,7 +8,7 @@ import json
 import os
 from collections import defaultdict
 import datetime
-from typing import List
+from typing import List, Dict
 
 import csv
 import aiofiles
@@ -141,6 +141,15 @@ def save_users(data):
         logger.debug('saved users')
 
 
+def get_channel_owner(ch_id: int):
+    users = get_users()
+    owners = [k for k, v in users.items() if ch_id in v]
+    if owners:
+        return owners[0]
+    else:
+        return None
+
+
 def get_feeds():
     root = get_project_root()
     path = os.path.join(root, FEEDS_FILEPATH)
@@ -170,10 +179,10 @@ def update_feed(feeds, dst_ch: Channel, src_ch=None, add_not_remove=True):
     else:
         if src_ch is None:  # full remove of the dst_ch
             feeds.pop(dst_ch.id, None)  # feeds may not contain this channel at all if there are no subs for it
-            logger.debug(f'Permanently removed {dst_ch} from feeds')
+            logger.debug(f'Permanently removed {dst_ch!r} from feeds')
         else:
             feeds[dst_ch.id] = [c for c in feeds[dst_ch.id] if c != src_ch.id]
-            logger.debug(f'Removed {src_ch} from {dst_ch} feeds')
+            logger.debug(f'Removed {src_ch!r} from {dst_ch!r} feeds')
     return feeds
 
 
@@ -186,7 +195,7 @@ def save_feeds(data):
         logger.debug('saved feeds')
 
 
-def invert_feeds(feeds: dict[int, List[int]], client: TelegramClient) -> dict[int, List[int]]:
+def invert_feeds(feeds: Dict[int, List[int]], client: TelegramClient) -> Dict[int, List[int]]:
     scr2dst = {}
     for dst_ch_id, src_ch_id_list in feeds.items():
         for src_ch_id in src_ch_id_list:
@@ -212,6 +221,7 @@ def get_rb_filters():
 def get_transaction_template():
     """
     Acts like a schema for the destination file
+    Warning! If the order is changed here, the transactions CSV will fail. You have to allign both of them
 
     Returns
     -------
@@ -230,21 +240,24 @@ def get_transaction_template():
          'src_channel_link': None,
          'src_channel_name': None,
          'src_forwarded_from_original_timestamp': None,
-         'src_channel_message_id': None,  # is different from message_id
-         'pinned': None,
+         'src_channel_message_id': None,
+         'pinned_in_src_channel': None,  # renamed: pinned -> pinned_in_src_channel
+         'src_channel_message_grouped_id': None,  # renamed: grouped_id
+         'src_channel_message_is_grouped': None,  # renamed: grouped
 
          'original_content': None,
          'original_channel_id': None,
          'original_channel_link': None,
          'original_channel_name': None,
          'original_post_timestamp': None,
+         'original_channel_message_id': None,  # (none if channel action?) renamed: message_id to original_channel_message_id
+         # add group ID if given in the original
 
-         'message_id': None,  # (none if channel action)
-         'grouped_id': None,
-         'grouped': None,
-         'message_text': None,
+         'message_text': None,  # actually also should have src_channel or original_channel
          'empty_text': None,
+         'media': None,
          'media_type': None,
+         'entities': None,
          'entities_num': None,
 
          'filtered_by_common_rb': None,
@@ -262,6 +275,8 @@ def check_dir(file_name):
 
 
 async def dict_to_csv_async(d: List[dict], filepath: str):
+    # dictionary keys order is extremely important!
+    # TODO: add check that fields are the same
     check_dir(filepath)
     if not os.path.isfile(filepath):
         logger.info(f"Creating a new file for: {filepath}")
@@ -286,8 +301,8 @@ async def log_messages(client: TelegramClient, msg_list_before: List[Message],
         row_dict['processing_timestamp'] = datetime.datetime.now()
 
         msg_features = await extract_msg_features(msg, client)
-        msg_features.pop('media')
-        msg_features.pop('entities')
+        # msg_features.pop('media')
+        # msg_features.pop('entities')
         for k in list(msg_features):
             if emoji.is_emoji(k):
                 msg_features.pop(k)
@@ -305,7 +320,12 @@ async def log_messages(client: TelegramClient, msg_list_before: List[Message],
             row_dict['action'] = 'filter'
             row_dict['filtered_by_ml'] = True
 
+        len_before = len(row_dict)
         row_dict.update(kwargs)
+        len_after = len(row_dict)
+        if len_before != len_after:
+            logger.error(f'During logging the shape of the log dict changed from {len_before} (expected) to '
+                         f'{len_after} (actual')
 
         rows.append(row_dict)
 
@@ -326,14 +346,17 @@ async def delete_users_channel(event, channel: Channel, clients: List[TelegramCl
     update_feed(feeds, dst_ch=channel, src_ch=None, add_not_remove=False)
     save_feeds(feeds)
 
+    # TODO: remove from the cache as well to avoid collisions with the same new name
+
     # remove bot from the channel. but the bot may be even not added
     try:
         for client in clients:
             async with client:
+                # Deletes a dialog (leaves a chat or channel).
                 await client.delete_dialog(channel.id)
                 # notify the user
-                await event.reply(f"Channel {channel.name} is removed from the database")
-                logger.info(f'{await client.get_me()} successfully quit from {channel}')
+                await event.reply(f"Channel {channel.name} is removed from the database")  # sent twice
+                logger.info(f'{await client.get_me()} successfully quit from {channel!r}')
     except ChannelInvalidError:
         logger.error('Invalid channel object. Make sure to pass the right types, for instance making sure that the '
                      'request is designed for channels or otherwise look for a different one more suited '
@@ -364,6 +387,8 @@ if __name__ == '__main__':
 
     # ch = Channel(channel_id=-1001809422952)
     # print('size', sys.getsizeof(ch))
+    print(f'Owner of {-1001320078862} is {get_channel_owner(-1001320078862)}')
+    print(f'Owner of {-1001843444088} is {get_channel_owner(-1001843444088)}')
 
     with client:
         # input_entity = Channel(parsable="https://t.me/data_secrets", client=client, restore_values=True, force_request=False)

@@ -1,5 +1,7 @@
 import time
 import os
+import re
+from copy import deepcopy
 
 from telethon import TelegramClient
 from telethon.tl.functions.messages import CheckChatInviteRequest, ImportChatInviteRequest
@@ -195,24 +197,66 @@ def get_msg_media_type(msg: Message):
     return str(type(msg.media)).split("'")[1].split('.')[-1]
 
 
+def extract_original_channel_link_from_copypasted_text(text, postfix_re_pattern):
+    """
+    Extracts link of the original channel and message ID in the original channel from the message I've copypasted
+
+    Parameters
+    ----------
+    text
+    postfix_re_pattern
+
+    Returns
+    -------
+    original_channel_link : str
+    original_channel_message_id : str
+
+    """
+    try:
+        if text is None:
+            return None
+
+        res = re.search(postfix_re_pattern, text)
+        if res:
+            link = res.groups()[0]
+            return link.rsplit('/', 1)
+        else:
+            return None, None
+    except:
+        print('failed in extract_original_channel_link_from_copypasted_text')
+        print(f'text: "{text}"')
+        print(f'postfix_re_pattern: "{postfix_re_pattern}"')
+        return None, None
+
+# COPYPASTE TO AVOID CIRCULAR
+MSG_POSTFIX_TEMPLATE = ("\n\n\n<em>Original post link: {post_link}</em>\n"
+                        "<em>Forwarded and filtered by @smartfeed_bot</em>")  # powered by?
+HTML_pattern = re.compile('<.*?>|&([a-z0-9]+|#[0-9]{1,6}|#x[0-9a-f]{1,6});')
+def cleanhtml(raw_html):
+    cleantext = re.sub(HTML_pattern, '', raw_html)
+    return cleantext
+template = cleanhtml(MSG_POSTFIX_TEMPLATE)
+postfix_re_pattern = re.sub(r"\{.*?\}", r"(.*)", template)
+
+
 async def extract_msg_features(msg: Message, client: TelegramClient = None, **kwargs):
     result_dict = dict()
-    result_dict['src_channel_message_id'] = msg.id
+    result_dict['src_channel_message_id'] = msg.id  # id of the message where we found it
     result_dict['message_text'] = msg.message
-    result_dict['pinned'] = msg.pinned
-    result_dict['grouped_id'] = msg.grouped_id
+    result_dict['pinned_in_src_channel'] = msg.pinned
+    result_dict['src_channel_message_grouped_id'] = msg.grouped_id
     result_dict['media'] = msg.media
-    result_dict['media_type'] = get_msg_media_type(msg)
+    result_dict['media_type'] = get_msg_media_type(msg)  # it's a postfactum feature which may be calculated later
 
-    if result_dict['message_text'] is None:
+    if result_dict['message_text'] is None:  # it's a postfactum feature which may be calculated later
         result_dict.update({'empty_text': True, 'message_text': ''})  # why empty string is selected?
     else:
         result_dict.update({'empty_text': False})
 
-    if result_dict['grouped_id'] is None:
-        result_dict['grouped'] = False
+    if result_dict['src_channel_message_grouped_id'] is None:  # it's a postfactum feature which may be calculated later
+        result_dict['src_channel_message_is_grouped'] = False
     else:
-        result_dict['grouped'] = True
+        result_dict['src_channel_message_is_grouped'] = True
 
     if client is not None:
         orig_channel, orig_date, orig_post_id, fwd_to_channel, fwd_date, fwd_to_post_id = await get_message_origins(client, msg)
@@ -220,16 +264,41 @@ async def extract_msg_features(msg: Message, client: TelegramClient = None, **kw
         result_dict['original_channel_id'] = orig_channel.id
         result_dict['original_channel_link'] = orig_channel.link
         result_dict['original_channel_name'] = orig_channel.name
+        result_dict['original_channel_message_id'] = orig_post_id
 
         result_dict['original_post_timestamp'] = orig_date  # TODO: add difference with the time of processing
         if fwd_to_channel.name is None:
-            result_dict['src_channel_id'] = orig_channel.id
-            result_dict['src_channel_link'] = orig_channel.link
-            result_dict['src_channel_name'] = orig_channel.name
+            orig_cn_link, original_channel_message_id = extract_original_channel_link_from_copypasted_text(msg.message,
+                                                                                                           postfix_re_pattern)
+            if orig_cn_link:  # this message looks like original but it is copypasted by me and this is mentioned in the message
+                # here I stupidly overwrite a lot of fields
+                # our channel becomes source (as it posted the post)
+                src_channel = Channel(channel_id=orig_channel.id, channel_link=orig_channel.link,
+                                      channel_name=orig_channel.name, is_public=orig_channel.is_public)
+                # but the creator is the channel from which we got this post
+                orig_channel = Channel(channel_link=orig_cn_link, client=client)
+                result_dict['original_channel_id'] = orig_channel.id
+                result_dict['original_channel_link'] = orig_channel.link
+                result_dict['original_channel_name'] = orig_channel.name
+                result_dict['original_channel_message_id'] = original_channel_message_id
 
-            result_dict['src_forwarded_from_original_timestamp'] = None
+                result_dict['original_post_timestamp'] = None  # not known afterwards
 
-            result_dict['original_content'] = True
+                result_dict['src_channel_id'] = src_channel.id
+                result_dict['src_channel_link'] = src_channel.link
+                result_dict['src_channel_name'] = src_channel.name
+
+                result_dict['src_forwarded_from_original_timestamp'] = orig_date
+
+                result_dict['original_content'] = False
+            else:
+                result_dict['src_channel_id'] = orig_channel.id
+                result_dict['src_channel_link'] = orig_channel.link
+                result_dict['src_channel_name'] = orig_channel.name
+
+                result_dict['src_forwarded_from_original_timestamp'] = None
+
+                result_dict['original_content'] = True
         else:
             result_dict['src_channel_id'] = fwd_to_channel.id
             result_dict['src_channel_link'] = fwd_to_channel.link
@@ -262,11 +331,11 @@ if __name__ == '__main__':
     user_client_path = os.path.join(get_project_root(), 'src/telefeed_client')
     client = start_client(user_client_path)
 
-    messages = asyncio.get_event_loop().run_until_complete(
-        get_history(client=client, channel=None, min_id=68326 - 10, entity=-1001099860397, limit=30))
+    # messages = asyncio.get_event_loop().run_until_complete(
+    #     get_history(client=client, channel=None, min_id=68326 - 10, entity=-1001099860397, limit=30))
 
     messages = asyncio.get_event_loop().run_until_complete(
-        get_history(client=client, channel=None, entity='https://t.me/myfavoritejumoreski', limit=11))
+        get_history(client=client, channel=None, entity=-1001051500113, limit=4))
 
     messages = asyncio.get_event_loop().run_until_complete(
         get_history(client=client, channel=None, entity=-1001143742161, limit=11))

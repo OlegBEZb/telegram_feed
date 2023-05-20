@@ -41,6 +41,9 @@ class Channel:
         self.restore_values = restore_values
         self.force_update = force_update
 
+        if self.link is not None:
+            self.link = check_channel_link_correctness(self.link)
+
         if self.parsable:
             # here entity may be already in the cache but of not known type (ID, link) so the goal here is to define
             # the entity type and decide what kind of processing is needed. Instead of parsing ourselves, we can get
@@ -110,13 +113,11 @@ class Channel:
                 get_channel_link(self._client, entity))  # doesn't work without nesting
         else:  # perform the heaviest request
             if self.link is not None:
-                self.link = check_channel_link_correctness(self.link)
                 entity = asyncio.get_event_loop().run_until_complete(get_entity(self._client, self.link))
                 self.id = asyncio.get_event_loop().run_until_complete(get_channel_id(self._client, entity))
             elif self.id is not None:
-                # entity = asyncio.get_event_loop().run_until_complete(get_entity(self._client, self.id))  # TODO: do we need this here as entity is created in the same way inside get_channel_link
-                # self.link = asyncio.get_event_loop().run_until_complete(get_channel_link(self._client, entity))
-                self.link = asyncio.get_event_loop().run_until_complete(get_channel_link(self._client, self.id))
+                entity = asyncio.get_event_loop().run_until_complete(get_entity(self._client, self.id))
+                self.link = asyncio.get_event_loop().run_until_complete(get_channel_link(self._client, entity))
 
         if self.id is None:  # TODO: add some better solution for empty channel
             # logger.error(f'{self. __repr__()} may be not a channel but a user. Not implemented scenario. Otherwise this may be just nothing')
@@ -277,7 +278,8 @@ async def get_entity(client, entity):
         # time.sleep(e.seconds)
         raise
     except:
-        logger.error(f'Failed to get_entity with client:\n{await client.get_me()}\nand entity of type {type(entity)}:\n{entity}', exc_info=True)
+        if entity is not None:
+            logger.error(f'Failed to get_entity with client:\n{await client.get_me()}\nand entity of type {type(entity)}:\n{entity}', exc_info=True)
         return None
         # raise
     # TODO: catch ValueError("Could not find any entity corresponding to") for all get_*. occurs when searching by name

@@ -283,7 +283,8 @@ async def command_create_channel(event):
                 if desired_public_name == 'private':
                     new_channel_link = None
                     await bot_client.send_message(sender_id, f"Congratulations! Private channel "
-                                                             f"'{new_channel_name}' is created")
+                                                             f"'{new_channel_name}' is created. Now you can find it "
+                                                             "in the 'All Chats section'")
                     break
                 async with user_client_for_bot_cli:
                     check_channel_name_result = await user_client_for_bot_cli(CheckUsernameRequest(
@@ -298,7 +299,8 @@ async def command_create_channel(event):
                         logger.debug(f'{await get_display_name(bot_client, int(sender_id))} ({sender_id}) '
                                      f"created a public channel with the name 'https://t.me/{desired_public_name}'")
                         await bot_client.send_message(sender_id, f"Congratulations! Public channel "
-                                                                 f"@{desired_public_name} is created")
+                                                                 f"@{desired_public_name} is created. Now you can find "
+                                                                 f"it in the 'All Chats section'")
                         new_channel_link = f'https://t.me/{desired_public_name}'
                         break
                     else:
@@ -309,11 +311,16 @@ async def command_create_channel(event):
                 await command_menu(event)
                 return
             except UsernameInvalidError:
-                bot_client.send_message(sender_id, "Nobody is using this username, or the username is unacceptable. "
-                                                   "If the latter, it must match r\"[a-zA-Z][\w\d]{3,30}[a-zA-Z\d]\"")
+                await bot_client.send_message(sender_id, "Nobody is using this username, or the username is "
+                                                         "unacceptable. If the latter, it must match "
+                                                         "r\"[a-zA-Z][\w\d]{3,30}[a-zA-Z\d]\"")
             except:
                 logger.error('Not able to parse user\'s input during public/private naming', exc_info=True)
 
+        # at the end of the communication, the menu is sent anyway
+        await command_menu(event)
+
+    # TODO: make a func from it?
     async with user_client_for_bot_cli:
         try:
             new_channel_id = int('-100' + str(new_channel_id))
@@ -328,7 +335,7 @@ async def command_create_channel(event):
             if sender_id != config.my_id:
                 await transfer_channel_ownership(client=user_client_for_bot_cli, channel_id=new_channel_id, to_user_id=sender_id)
 
-            channels = get_channels()
+            channels = get_channels(restore_values=False)
             if desired_public_name == 'private':
                 public = False
             else:
@@ -370,7 +377,7 @@ async def command_delete_channel(event):  # callback function
             exc_info=True)
         return
 
-    # TODO: open for everyone
+    # TODO: open for everyone. Now only admins can perform this action. Users should be able to do this only with their channels
     if sender_id not in [config.my_id, 194124545]:
         users = get_users()
         if target_ch.id not in users[sender_id]:
