@@ -48,7 +48,6 @@ def get_reactions(msg: Message):
 
 # TODO: extension to the end of the group. https://stackoverflow.com/questions/74084075/telethon-or-pyrogram-forward-whole-album-instead-of-last-media-without-caption
 # TODO: add limit -1 for the whole history
-# TODO: accept Channel as argument and try to restore with ID first, and link second. Only after that return exception
 async def get_history(client: TelegramClient, channel: Channel = None, **get_history_request_kwargs) -> 'hints.TotalList':
     """
     Accepts channel or entity inside the kwargs. Channel has higher weight and ID and link from it will be used.
@@ -93,14 +92,18 @@ async def get_history(client: TelegramClient, channel: Channel = None, **get_his
             break
         except ChannelPrivateError:
             logger.error(f'Tried to perform get_history on a private/banned channel. User client has to be a part of it. '
-                         f'get_history_request_kwargs\n{get_history_request_kwargs}')  # may be even public but your bot has to be added
+                         f'\nget_history_request_kwargs: {kw}\n{channel!r}')  # may be even public but your bot has to be added
             raise
         except FloodWaitError as e:
             logger.info(f'Got FloodWaitError cause by GetHistoryRequest. Have to sleep {e.seconds} seconds / {e.seconds / 60:.1f} minutes / '
-                        f'{e.seconds / 60 / 60:.1f} hours\nget_history_request_kwargs\n{get_history_request_kwargs}')
+                        f'{e.seconds / 60 / 60:.1f} hours\nget_history_request_kwargs: {kw}\n{channel!r}')
             raise
+        except ValueError as e:
+            logger.error(e)
         except:
-            logger.error(f'Unknown fail in get_history. client:\n{await client.get_me()}\nget_history_request_kwargs\n{get_history_request_kwargs}', exc_info=True)
+            # this happens due to the fact that this particular client did not see this channel, even if it is known to
+            # us and already cached for another client
+            logger.error(f'Unknown fail in get_history. client:\n{await client.get_me()}\nget_history_request_kwargs: {kw}\n{channel!r}', exc_info=True)
             # raise
 
     return messages
@@ -267,7 +270,7 @@ async def extract_msg_features(msg: Message, client: TelegramClient = None, **kw
         result_dict['original_channel_message_id'] = orig_post_id
 
         result_dict['original_post_timestamp'] = orig_date  # TODO: add difference with the time of processing
-        if fwd_to_channel.name is None:
+        if fwd_to_channel.name is None and msg.message is not None:
             orig_cn_link, original_channel_message_id = extract_original_channel_link_from_copypasted_text(msg.message,
                                                                                                            postfix_re_pattern)
             if orig_cn_link:  # this message looks like original but it is copypasted by me and this is mentioned in the message

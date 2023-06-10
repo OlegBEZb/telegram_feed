@@ -5,21 +5,22 @@ from telethon import events, types, TelegramClient
 from telethon.tl.functions.channels import CheckUsernameRequest, UpdateUsernameRequest
 from telethon.tl.types import InputPeerChannel
 from telethon.events import StopPropagation
-from telethon.errors.rpcerrorlist import PasswordTooFreshError, UsernameInvalidError, PasswordHashInvalidError, SessionTooFreshError
+from telethon.errors.rpcerrorlist import (PasswordTooFreshError, UsernameInvalidError, PasswordHashInvalidError,
+                                          SessionTooFreshError, UsernamePurchaseAvailableError)
 
 import config
 
 import logging
 
-from src.bot import bot_client, CLI_COMMANDS, ADMIN_COMMANDS, START_MESSAGE, ABOUT_MESSAGE, FEEDBACK_MESSAGE
 from src.common.utils import list_to_str_newline
 from src.common.get_project_root import get_project_root
-from src.bot.bot_utils import add_to_channel, get_answer_in_conv, get_users_channel_links
-
 from src.common.database_utils import (get_users, update_users, save_users, get_feeds, delete_users_channel)
 from src.common.channel import Channel, get_display_name, update_channels, get_channels
-
 from src.common.decorators import check_direct
+
+from src.bot.admin_utils import ADMIN_USER_IDS
+from src.bot.bot_utils import add_to_channel, get_answer_in_conv, get_users_channel_links
+from src.bot import bot_client, CLI_COMMANDS, ADMIN_COMMANDS, START_MESSAGE, ABOUT_MESSAGE, FEEDBACK_MESSAGE
 
 logging.basicConfig(
     # filename="BotClient.log",
@@ -239,7 +240,7 @@ async def command_create_channel(event):
     sender_id = event.chat_id
 
     users = get_users()
-    if len(users[sender_id]) == 5:
+    if (len(users[sender_id]) >= 5) and (sender_id not in ADMIN_USER_IDS):
         await event.reply("You are not allowed to have more than 5 channels so far")
         return
 
@@ -275,21 +276,33 @@ async def command_create_channel(event):
         logger.info(f"New channel '{new_channel_name}' ({new_channel_id}) is created for {await get_display_name(bot_client, int(sender_id))} ({sender_id})")
         while True:  # TODO: reduct to some non-infinite number of attempts?
             try:
-                desired_public_name = await get_answer_in_conv(event,
-                                                               "Do you want the channel to be public or private? If private, just reply to this "
-                                                               "message with '**private**'. If you want a public channel, then you need to reply "
-                                                               "with a desired name (so-called public link or username). This channel name will be used in https://t.me/**your_public_name** "
-                                                               "and @**your_public_name**", timeout=300)
+                desired_public_name = await get_answer_in_conv(
+                    event,
+                    "Do you want the channel to be public or private? If private, just reply to this "
+                    "message with '**private**'. If you want a public channel, then you need to reply "
+                    "with a desired name (so-called public link or username). "
+                    "This channel name will be used in https://t.me/**your_public_name** "
+                    "and @**your_public_name**",
+                    timeout=300)
                 if desired_public_name == 'private':
                     new_channel_link = None
                     await bot_client.send_message(sender_id, f"Congratulations! Private channel "
                                                              f"'{new_channel_name}' is created. Now you can find it "
-                                                             "in the 'All Chats section'")
+                                                             "in the 'All Chats' Telegram folder")
                     break
                 async with user_client_for_bot_cli:
-                    check_channel_name_result = await user_client_for_bot_cli(CheckUsernameRequest(
-                        InputPeerChannel(channel_id=new_channel_id,
-                                         access_hash=new_channel_access_hash), desired_public_name))
+                    logger.debug(f"Checking username request with new_channel_id {new_channel_id} and "
+                                 f"desired_public_name {desired_public_name}")
+                    try:
+                        check_channel_name_result = await user_client_for_bot_cli(CheckUsernameRequest(
+                            InputPeerChannel(channel_id=new_channel_id,
+                                             access_hash=new_channel_access_hash), desired_public_name))
+                    except UsernamePurchaseAvailableError:
+                        logger.debug(f'{await get_display_name(bot_client, int(sender_id))} ({sender_id}) tried to '
+                                     f"create a public channel but the name '{desired_public_name}' is non-free")
+                        await bot_client.send_message(sender_id, "This channel name is available only for purchase"
+                                                                 " on fragment.com. Try again")
+                        continue
                     if check_channel_name_result:
                         update_response = await user_client_for_bot_cli(UpdateUsernameRequest(
                             InputPeerChannel(channel_id=new_channel_id, access_hash=new_channel_access_hash),
@@ -300,7 +313,7 @@ async def command_create_channel(event):
                                      f"created a public channel with the name 'https://t.me/{desired_public_name}'")
                         await bot_client.send_message(sender_id, f"Congratulations! Public channel "
                                                                  f"@{desired_public_name} is created. Now you can find "
-                                                                 f"it in the 'All Chats section'")
+                                                                 f"it in the 'All Chats' Telegram folder")
                         new_channel_link = f'https://t.me/{desired_public_name}'
                         break
                     else:

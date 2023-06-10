@@ -5,6 +5,7 @@ import argparse
 from random import randint
 from copy import deepcopy
 import time
+import datetime
 
 import logging
 
@@ -74,6 +75,10 @@ def send_group_if_non_empty(msg_list: List[Message], bot_client: TelegramClient,
                                        peer_to_forward_to=peer_to_forward_to)
             msg_list = []
 
+        except ChannelPrivateError:
+            logger.error(f"Unable to send to peer_to_forward_to={peer_to_forward_to}. The channel specified is private "
+                         "and you lack permission to access it. Another reason may be that you were banned from it "
+                         "(caused by ForwardMessagesRequest)")
         except ChannelInvalidError:
             logger.error(
                 f"Invalid channel object (peer_to_forward_to={peer_to_forward_to}). Make sure to pass the right "
@@ -146,6 +151,11 @@ def format_forwarded_msg_as_original(msg: Message, orig_channel: Channel, origin
 
 
 def remove_original_channel_signature(msg: str):
+    # TODO: check potential bug of a removed link at the end of the post below
+    #  Доклад
+    #
+    # @ai_newz
+    #
     # replaces other channel signature at the end of the message (should be without entities)
     # but anyway MessageEntityMention remains. Is this a problem?
     # TODO: move this action to the filtering stage as well to be less dependent on copypasted material
@@ -224,6 +234,7 @@ async def send_msg_list(msg_list: List[Message], bot_client: TelegramClient, pee
                         media = None  # Bots can't access web previews. TODO: create myself?
                         link_preview = True
                 try:
+                    # TODO: fix TypeError: Cannot use <telethon.tl.types.MessageMediaPoll object at 0x125b8a8b0> as file
                     await bot_client.send_message(entity=peer_to_forward_to,
                                                   message=new_msg.message,
                                                   file=media,  # TODO: make this a list of all the messages in a group
@@ -249,25 +260,31 @@ async def ensure_media_access(msg, user_client, bot_client, orig_channel_id):
     async def sync_bot_last_msg_id():
         # logger.error('Bot chat with the user is out of sync. Syncing')
 
+        now = datetime.datetime.now(datetime.timezone.utc)
+        diff_seconds = 999999
         tolerance = 10
-        last_expected_id = get_last_bot_id() - 5
-        last_actual_id = last_expected_id
         last_msg = None
-        for i in range(last_expected_id, last_expected_id + 70):
-            bot_from_user_msg = await bot_client.get_messages(config.my_id, ids=i)
+
+        last_expected_id = get_last_bot_id()
+        last_actual_id = last_expected_id
+        while diff_seconds > 60 or tolerance > 0:
+            last_expected_id += 1
+            tolerance -= 1
+
+            bot_from_user_msg = await bot_client.get_messages(config.my_id, ids=last_expected_id)  # in debug mode failed with 'NoneType' object has no attribute 'my_id'
             if bot_from_user_msg:
                 # print(i, bot_from_user_msg.date)
                 # print(bot_from_user_msg)
-                last_actual_id = i
-                tolerance = 0
+                last_actual_id = last_expected_id
                 last_msg = bot_from_user_msg
-            else:
-                tolerance -= 1
-                if tolerance == 0:
-                    # logger.info()
-                    break
-        if last_actual_id % 10 == 0:
-            logger.info(f'Last id and date in the bot chat: {last_actual_id}, {last_msg.date}')
+                diff_seconds = (now - last_msg.date).seconds
+
+                # we always check 10 next messages after the existing one
+                tolerance = 10
+
+
+        if last_actual_id % 5 == 0:
+            logger.info(f'Last id and UTC date in the bot chat: {last_actual_id}, {last_msg.date}')
         save_last_bot_ids(last_actual_id)
         return last_msg, last_actual_id
 
@@ -431,7 +448,7 @@ def forward_msg_by_id_list(client: TelegramClient, peer: TypeInputPeer, msg_ids_
             to_peer=peer_to_forward_to,  # who are we forwarding them to?
             with_my_score=True
         ))
-    logger.log(5, f'forwawrded msg ids: {msg_ids_to_forward} to {peer_to_forward_to}')
+    logger.log(5, f'forwarded msg ids: {msg_ids_to_forward} to {peer_to_forward_to}')
 
 
 # TODO: simplify function
@@ -562,7 +579,7 @@ def check_new_channel_messages(src_ch: Channel, last_channel_ids, client):
             # peer=InputPeerChannel(entity_id, entity_hash)
             messages = None
             messages = asyncio.get_event_loop().run_until_complete(
-                get_history(client=client, channel=src_ch, min_id=last_channel_ids[src_ch.id], limit=30))
+                get_history(client=client, channel=src_ch, min_id=last_channel_ids[src_ch.id], limit=15))
             if len(messages) == 0:
                 try:
                     # solution based on telegram dialog fields

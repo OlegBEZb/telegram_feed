@@ -29,7 +29,7 @@ class Channel:
     """
 
     def __init__(self, parsable=None, channel_id=None, channel_name=None, channel_link=None,
-                 is_public=None, restore_values=True, force_update=False, client=None):
+                 is_public=None, restore_values=True, force_update=False, client: TelegramClient=None):
 
         self._client = client
         self.parsable = parsable
@@ -130,7 +130,7 @@ class Channel:
             else:
                 self.is_public = True
 
-            logger.info(f"Restored {self. __repr__()} via request")
+            logger.info(f"Restored {self. __repr__()} via request for client wiht ID: {self._client._self_id}")
             channels = get_channels(restore_values=False)
             update_channels(channels, self)
 

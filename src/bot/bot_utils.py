@@ -9,6 +9,7 @@ from src.common.utils import list_to_str_newline
 from src.common.channel import Channel, get_display_name
 
 from src import config
+from src.bot.admin_utils import ADMIN_USER_IDS
 
 import logging
 logger = logging.getLogger(__name__)
@@ -32,6 +33,15 @@ async def get_users_channel_links(event):
     return users_channels_links
 
 
+async def channel_within_max_subs_limit(feeds, dst_ch, sender_id):
+    max_sub_channels_limit = 20
+    if len(feeds[dst_ch.id]) >= max_sub_channels_limit and (sender_id not in ADMIN_USER_IDS):
+        logger.info(f"Channel {dst_ch} faced a limit of source channels")
+        await bot_client.send_message(sender_id, f"You are not allowed to have more than {max_sub_channels_limit} source channels")
+        return True
+    return False
+
+
 async def add_to_channel(src_ch: Channel, dst_ch: Channel, sender_id):  # TODO: add types
     # TODO: add any number of channels before the last/destination one
 
@@ -42,9 +52,7 @@ async def add_to_channel(src_ch: Channel, dst_ch: Channel, sender_id):  # TODO: 
         return
     feeds = get_feeds()
 
-    if len(feeds[dst_ch.id]) > 20:
-        logger.info(f"Channel {dst_ch} faced a limit of source channels")
-        await bot_client.send_message(sender_id, "You are not allowed to have more than 20 source channels")
+    if not channel_within_max_subs_limit(feeds, dst_ch, sender_id):
         return
 
     existing_dst_channel_ids = list(feeds.keys())

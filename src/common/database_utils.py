@@ -356,7 +356,7 @@ async def delete_users_channel(event, channel: Channel, clients: List[TelegramCl
                 await client.delete_dialog(channel.id)
                 # notify the user
                 await event.reply(f"Channel {channel.name} is removed from the database")  # sent twice
-                logger.info(f'{await client.get_me()} successfully quit from {channel!r}')
+                logger.info(f'{await client.get_me()}\nsuccessfully quit from {channel!r}')
     except ChannelInvalidError:
         logger.error('Invalid channel object. Make sure to pass the right types, for instance making sure that the '
                      'request is designed for channels or otherwise look for a different one more suited '
