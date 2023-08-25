@@ -6,3 +6,5 @@ aiofiles
 scikit-learn==1.2.2
 emoji==2.2.0
 apscheduler==3.9.1
+prospector==1.8.4
+pipelinehelper
