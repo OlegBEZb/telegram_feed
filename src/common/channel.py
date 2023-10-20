@@ -266,7 +266,8 @@ def check_channel_link_correctness(channel_link: str) -> str:
 async def get_entity(client, entity):
     # TODO: process get entity via the same func for all get_* and catch errors
     try:
-        entity = await client.get_entity(entity)
+        async with client:
+            entity = await client.get_entity(entity)
         return entity
     except ChannelPrivateError:
         logger.debug(

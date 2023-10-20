@@ -195,11 +195,11 @@ def save_feeds(data):
         logger.debug('saved feeds')
 
 
-def invert_feeds(feeds: Dict[int, List[int]], client: TelegramClient) -> Dict[int, List[int]]:
+async def invert_feeds(feeds: Dict[int, List[int]], client: TelegramClient) -> Dict[int, List[int]]:
     scr2dst = {}
     for dst_ch_id, src_ch_id_list in feeds.items():
         for src_ch_id in src_ch_id_list:
-            with client:
+            async with client:
                 src_ch = Channel(channel_id=src_ch_id, client=client)
                 dst_ch = Channel(channel_id=dst_ch_id, client=client)
             scr2dst.setdefault(src_ch, []).append(dst_ch)
