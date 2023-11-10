@@ -16,42 +16,64 @@ from src.common.database_utils import get_last_bot_id, save_last_bot_ids
 logger = logging.getLogger(__name__)
 
 
+MSG_POSTFIX_TEMPLATE = ("\n\n\n<em>Original post link: {post_link}</em>\n"
+                        "<em>Forwarded and filtered by @smartfeed_bot</em>")  # powered by?
+SIGNATURE_REGEX = re.compile(r"\n+@[a-z_]+\n*$")
+
+
 def format_forwarded_msg_as_original(msg: Message, orig_channel: Channel, original_msg_id) -> Message:
     """
-    Format a forwarded message as if it was sent from the original channel
+    Formats a forwarded message to appear as if it were sent from the original channel.
 
     Parameters
     ----------
-     msg : `Message`
-        The message to be formatted
+    msg : Message
+        The message to be formatted.
+    orig_channel : Channel
+        The original channel from which the message was forwarded.
+    original_msg_id : int
+        The ID of the original message in the original channel.
 
     Returns
     -------
     Message
-        The message object after formatting as if it was sent from the original channel
+        The message object after formatting as if it was sent from the original channel.
 
     """
     try:
-        # without that copying doesn't work
+        # without that copying doesn't work (serialisation issue) as _client is a complicated structure
         msg._client = None
         if msg._forward:
             msg._forward._client = None
         new_msg = deepcopy(msg)
     except:
         logger.error(f'Unable to remove clients from message\n{msg.stringify()}')
+        return None
 
-    if orig_channel.is_public == True:
-        post_link = orig_channel.link.replace('https://t.me/', 't.me/') + '/' + str(original_msg_id)
-    elif orig_channel.is_public == False:
-        post_link = 't.me/c/' + str(orig_channel.id) + '/' + str(original_msg_id)
-    else:
-        post_link = 'unknown'
+    post_link = create_post_reference_link(orig_channel, original_msg_id)
 
+    # Remove the original channel signature and append the custom postfix.
     new_msg.message = remove_original_channel_signature(new_msg.message)
-
     postfix = MSG_POSTFIX_TEMPLATE.format(post_link=post_link)
     new_msg.message += postfix
 
+    new_msg = update_entities(new_msg)
+
+    return new_msg
+
+
+def create_post_reference_link(orig_channel, original_msg_id):
+    if orig_channel.is_public == True:
+        post_link = f"{orig_channel.link.replace('https://t.me/', 't.me/')}/{original_msg_id}"
+    elif orig_channel.is_public == False:
+        post_link = f't.me/c/{orig_channel.id}/{original_msg_id}'  # TODO: replace with invite?
+    else:
+        post_link = 'unknown'
+    return post_link
+
+
+def update_entities(new_msg):
+    # TODO: check as some links disappear after this step
     text, extra_entities = html.parse(new_msg.message)
     new_msg.message = text
     if new_msg.entities is None:
@@ -62,21 +84,63 @@ def format_forwarded_msg_as_original(msg: Message, orig_channel: Channel, origin
     return new_msg
 
 
-def remove_original_channel_signature(msg: str):
+def remove_original_channel_signature(message: str):
+    """
+    # TODO: consider moving this action to the filtering stage as well to be less dependent on copypasted material
+    # replaces other channel signature at the end of the message (should be without entities)
+    # but anyway MessageEntityMention remains. Is this a problem?
+
+    Parameters
+    ----------
+    message : str
+        The message from which to remove the signature.
+
+    Returns
+    -------
+    str
+        The message without the original channel signature.
+    -------
+
+    """
     # TODO: check potential bug of a removed link at the end of the post below
     #  Доклад
     #
     # @ai_newz
     #
-    # replaces other channel signature at the end of the message (should be without entities)
-    # but anyway MessageEntityMention remains. Is this a problem?
-    # TODO: move this action to the filtering stage as well to be less dependent on copypasted material
-    if re.search(r"\n+@[a-z_]+\n*$", msg):  # TODO: fix also 👉@computer_science_and_programming and https://t.me/+Qm9PbhU6Lf0h5wsm
-        msg = re.sub(r"\n+@[a-z_]+\n*$", "", msg)
-    return msg
+
+
+    # TODO: extend the regex to match post signatures like this
+    # Post
+    #
+    # 👉@computer_science_and_programming
+    # TODO: extend the regex to match post signatures with hashed like this
+    #  Post
+    #
+    #  https://t.me/+Qm9PbhU6Lf0h5wsm
+    return SIGNATURE_REGEX.sub("", message)
 
 
 async def ensure_media_access(msg, user_client, bot_client, orig_channel_id):
+    """
+    Ensures that media can be accessed by forwarding the message to a bot and syncing the last message ID.
+
+    Parameters
+    ----------
+    msg : Message
+        The message containing the media.
+    user_client : telethon.TelegramClient
+        The user client instance.
+    bot_client : telethon.TelegramClient
+        The bot client instance.
+    orig_channel_id : int
+        The ID of the original channel.
+
+    Returns
+    -------
+    Message
+        The message object after ensuring media access.
+
+    """
     async def sync_bot_last_msg_id():
         # logger.error('Bot chat with the user is out of sync. Syncing')
 
@@ -161,7 +225,3 @@ async def msg_is_invoice(msg, client, from_peer, peer_to_forward_to):
     except ChatWriteForbiddenError:
         logger.error(f"{await client.get_me()} can't forward from {from_peer!r} to {peer_to_forward_to} "
                      f"(caused by ForwardMessagesRequest)")  # add the owner as well
-
-
-MSG_POSTFIX_TEMPLATE = ("\n\n\n<em>Original post link: {post_link}</em>\n"
-                        "<em>Forwarded and filtered by @smartfeed_bot</em>")  # powered by?
