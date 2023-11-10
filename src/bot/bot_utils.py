@@ -9,7 +9,7 @@ from src.common.utils import list_to_str_newline
 from src.common.channel import Channel, get_display_name
 
 from src import config
-from src.bot.admin_utils import ADMIN_USER_IDS
+from src.bot.admin.admin_utils import ADMIN_USER_IDS
 
 import logging
 logger = logging.getLogger(__name__)

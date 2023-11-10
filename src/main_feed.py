@@ -89,7 +89,7 @@ async def send_group_if_non_empty(msg_list: List[Message], bot_client: TelegramC
             # TODO: this have to be registred properly. rn messages have forward status
             logger.error(f"{from_peer} restricted the option to forward messages")
         except:
-            logger.error(f'Was not able send the message to {peer_to_forward_to}', exc_info=True)
+            logger.error(f'Failed in send_group_if_non_empty while sending to {peer_to_forward_to} the following messages:\n{[m.stringify() for m in msg_list]}', exc_info=True)
 
     return msg_list
 

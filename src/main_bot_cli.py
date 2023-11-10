@@ -18,7 +18,7 @@ from src.common.database_utils import (get_users, update_users, save_users, get_
 from src.common.channel import Channel, get_display_name, update_channels, get_channels
 from src.common.decorators import check_direct
 
-from src.bot.admin_utils import ADMIN_USER_IDS
+from src.bot.admin.admin_utils import ADMIN_USER_IDS
 from src.bot.bot_utils import add_to_channel, get_answer_in_conv, get_users_channel_links
 from src.bot import bot_client, CLI_COMMANDS, ADMIN_COMMANDS, START_MESSAGE, ABOUT_MESSAGE, FEEDBACK_MESSAGE
 
@@ -424,7 +424,7 @@ async def echo_all(event):
 
 
 
-from src.bot.admin_command_handlers import send_stats
+from src.bot.admin.admin_command_handlers import send_stats
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import tzlocal
 from apscheduler.triggers.cron import CronTrigger

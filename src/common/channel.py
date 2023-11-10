@@ -22,10 +22,55 @@ CHANNEL_RESTORE_REQUEST_PROB = 1/5000
 
 class Channel:
     """
-    Zeroly, parses input if the entity/parsable is of unknown type. For this, no API calls are performed.
-    Firstly, checks cached values in smartfeed database.
-    Secondly, tries to make a request and updates the values.
-    Otherwise, the channel will be with missed values.
+    The Channel class represents a Telegram channel. It handles the restoration and update of channel information
+    such as ID, name, and link, utilizing both local caches and Telegram API requests as necessary.
+
+    Parameters
+    ----------
+    parsable : Optional[str], optional
+        A string that can be parsed to identify a Telegram entity, by default None.
+    channel_id : Optional[int], optional
+        Unique identifier for this channel, by default None.
+    channel_name : Optional[str], optional
+        Name of the channel, by default None.
+    channel_link : Optional[str], optional
+        URL link of the channel, by default None.
+    is_public : Optional[bool], optional
+        Indicates if the channel is public, by default None.
+    restore_values : bool
+        If True, attempts to restore channel values from cache, by default True.
+    force_update : bool
+        If True, forces an update of channel information from the Telegram API, by default False.
+    client : Optional[TelegramClient]
+        Instance of a TelegramClient, by default None.
+
+    Attributes
+    ----------
+    id : Optional[int]
+        Unique identifier for this channel.
+    name : Optional[str]
+        Name of the channel.
+    link : Optional[str]
+        URL link of the channel.
+    input_entity : Optional[InputPeerChannel]
+        Telegram InputPeerChannel entity associated with the channel.
+    is_public : Optional[bool]
+        Indicates if the channel is public.
+    restore_values : bool
+        If True, attempts to restore channel values from cache.
+    force_update : bool
+        If True, forces an update of channel information from the Telegram API.
+    _client : Optional[TelegramClient]
+        Instance of a TelegramClient used for making API calls.
+
+    Methods
+    -------
+    async _restore_via_request()
+        Restores channel information by making API requests.
+    get_input_entity_offline(peer: EntityLike) -> InputPeerChannel
+        Gets the input entity from offline sources, without making API calls.
+    async _restore_from_cache()
+        Restores the channel information from a local cache.
     """
 
     def __init__(self, parsable=None, channel_id=None, channel_name=None, channel_link=None,
@@ -45,27 +90,13 @@ class Channel:
             self.link = check_channel_link_correctness(self.link)
 
         if self.parsable:
-            # here entity may be already in the cache but of not known type (ID, link) so the goal here is to define
-            # the entity type and decide what kind of processing is needed. Instead of parsing ourselves, we can get
-            # ID with the solution from telethon:
-            # "If you want to get the entity for a *cached* username, you should first `get_input_entity(username)
-            # <get_input_entity>` which will use the cache), and then use `get_entity` with the result of the previous
-            # call."
-            try:
-                if self.parsable.lstrip('-').isdigit():
-                    self.parsable = int(self.parsable)
-                self.input_entity = self.get_input_entity_offline(self.parsable)
-                self.id = int('-100' + str(self.input_entity.channel_id))
-                logger.debug(f'Inferred input entity {self.input_entity} from parsable {self.parsable}')
-            except ValueError:
-                # TODO: if there is nothing after parseable and we do not know what is the type of parseable, below will fail
-                pass
+            self.initialize_from_parsable()
 
         if restore_values:
             if not (self.id is None and self.link is None):  # here we do not do any difference for public and private
                 # old values may still be useful. Example: we knew link and ID but session got lost. The session can
                 # be refreshed if link is still working
-                self._restore_from_cache()
+                asyncio.get_event_loop().run_until_complete(self._restore_from_cache())
 
             # TODO: maybe launch once in a while to refresh values if there are remaining calls for today?
             # TODO: let get_entity work with any input and extract id, link and name after?
@@ -77,13 +108,13 @@ class Channel:
             random_float = random.random()
             if random_float < CHANNEL_RESTORE_REQUEST_PROB:
                 logger.info(f"Performing a random channel restoration with a probability of {CHANNEL_RESTORE_REQUEST_PROB}")
-                self._restore_via_request()
+                asyncio.get_event_loop().run_until_complete(self._restore_via_request())
             else:
                 if self.force_update \
                         or self.id is None \
                         or self.name is None \
                         or (self.link is None and (self.is_public != False)):
-                    self._restore_via_request()
+                    asyncio.get_event_loop().run_until_complete(self._restore_via_request())
 
         # if self.id is None and self.link is None:
             # raise ValueError(f'Either id or link has to be provided to specify a channel\n{self}')
@@ -96,7 +127,24 @@ class Channel:
 
     # await self._client._get_entity_from_string(x)
 
-    def _restore_via_request(self):
+    def initialize_from_parsable(self):
+        # here entity may be already in the cache but of not known type (ID, link) so the goal here is to define
+        # the entity type and decide what kind of processing is needed. Instead of parsing ourselves, we can get
+        # ID with the solution from telethon:
+        # "If you want to get the entity for a *cached* username, you should first `get_input_entity(username)
+        # <get_input_entity>` which will use the cache), and then use `get_entity` with the result of the previous
+        # call."
+        try:
+            if self.parsable.lstrip('-').isdigit():
+                self.parsable = int(self.parsable)
+            self.input_entity = self.get_input_entity_offline(self.parsable)
+            self.id = int('-100' + str(self.input_entity.channel_id))
+            logger.debug(f'Inferred input entity {self.input_entity} from parsable {self.parsable}')
+        except ValueError:
+            # TODO: if there is nothing after parseable and we do not know what is the type of parseable, below will fail
+            pass
+
+    async def _restore_via_request(self):
         if self._client is None:
             raise ValueError(f'TelegramClient has to be passed to perform a force update. {self.__repr__()}')
 
@@ -107,30 +155,29 @@ class Channel:
                 entity = self.parsable
 
             logger.info(f'Performing a force update using entity for {self!r}')
-            entity = asyncio.get_event_loop().run_until_complete(get_entity(self._client, entity))
-            self.id = asyncio.get_event_loop().run_until_complete(get_channel_id(self._client, entity))
-            self.link = asyncio.get_event_loop().run_until_complete(
-                get_channel_link(self._client, entity))  # doesn't work without nesting
+            entity = await get_entity(self._client, entity)
+            self.id = await get_channel_id(self._client, entity)
+            self.link = await get_channel_link(self._client, entity)  # doesn't work without nesting
         else:  # perform the heaviest request
             if self.link is not None:
-                entity = asyncio.get_event_loop().run_until_complete(get_entity(self._client, self.link))
-                self.id = asyncio.get_event_loop().run_until_complete(get_channel_id(self._client, entity))
+                entity = await get_entity(self._client, self.link)
+                self.id = await get_channel_id(self._client, entity)
             elif self.id is not None:
-                entity = asyncio.get_event_loop().run_until_complete(get_entity(self._client, self.id))
-                self.link = asyncio.get_event_loop().run_until_complete(get_channel_link(self._client, entity))
+                entity = await get_entity(self._client, self.id)
+                self.link = await get_channel_link(self._client, entity)
 
         if self.id is None:  # TODO: add some better solution for empty channel
             # logger.error(f'{self. __repr__()} may be not a channel but a user. Not implemented scenario. Otherwise this may be just nothing')
             pass
         else:
-            self.name = asyncio.get_event_loop().run_until_complete(get_display_name(self._client, entity))
+            self.name = await get_display_name(self._client, entity)
 
             if self.link is None:
                 self.is_public = False
             else:
                 self.is_public = True
 
-            logger.info(f"Restored {self. __repr__()} via request for client wiht ID: {self._client._self_id}")
+            logger.info(f"Restored {self. __repr__()} via request for client with ID: {self._client._self_id}")
             channels = get_channels(restore_values=False)
             update_channels(channels, self)
 
@@ -188,7 +235,7 @@ class Channel:
             ' find out more details.'.format(peer, type(peer).__name__)
         )
 
-    def _restore_from_cache(self):
+    async def _restore_from_cache(self):
         """
         Fully overwrites Channel fields if there is a local match via id or link (in this priority).
         Name is not used as a source of truth as it's not unique.
@@ -236,7 +283,7 @@ class Channel:
             return str(self.id)
 
     def __repr__(self):
-        return f"""Channel(id={self.id}, name="{self.name}", link="{self.link}", public={self.is_public})"""
+        return f"""Channel(id={self.id}, name="{self.name}", link="{self.link}", public={self.is_public}, parsable={self.parsable})"""
 
     def __hash__(self):
         return hash(self.id)
@@ -266,12 +313,10 @@ def check_channel_link_correctness(channel_link: str) -> str:
 async def get_entity(client, entity):
     # TODO: process get entity via the same func for all get_* and catch errors
     try:
-        async with client:
-            entity = await client.get_entity(entity)
+        entity = await client.get_entity(entity)
         return entity
     except ChannelPrivateError:
-        logger.debug(
-            f'Failed to get_entity due to ChannelPrivateError')
+        logger.debug(f'Failed to get_entity due to ChannelPrivateError')
         return None
     except FloodWaitError as e:
         logger.info(f'Got FloodWaitError cause by ResolveUsernameRequest. Have to sleep {e.seconds} seconds / {e.seconds / 60:.1f} minutes / '
@@ -279,8 +324,11 @@ async def get_entity(client, entity):
         # time.sleep(e.seconds)
         raise
     except:
-        if entity is not None:
-            logger.error(f'Failed to get_entity with client:\n{await client.get_me()}\nand entity of type {type(entity)}:\n{entity}', exc_info=True)
+        try:
+            if entity is not None:
+                logger.error(f'Failed to get_entity with client:\n{await client.get_me()}\nand entity of type {type(entity)}:\n{entity}', exc_info=True)
+        except:
+            logger.error("Failed to get entity and get a detailed log")
         return None
         # raise
     # TODO: catch ValueError("Could not find any entity corresponding to") for all get_*. occurs when searching by name

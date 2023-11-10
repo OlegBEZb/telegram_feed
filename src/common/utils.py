@@ -264,7 +264,7 @@ async def extract_msg_features(msg: Message, client: TelegramClient = None, **kw
     if client is not None:
         orig_channel, orig_date, orig_post_id, fwd_to_channel, fwd_date, fwd_to_post_id = await get_message_origins(client, msg)
 
-        result_dict['original_channel_id'] = orig_channel.id
+        result_dict['original_channel_id'] = orig_channel.id  # TODO: check fail with AttributeError: 'NoneType' object has no attribute 'id'
         result_dict['original_channel_link'] = orig_channel.link
         result_dict['original_channel_name'] = orig_channel.name
         result_dict['original_channel_message_id'] = orig_post_id
